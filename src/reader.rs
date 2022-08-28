@@ -1,28 +1,29 @@
+//! A utility for reading a file byte by byte.
 use std::fs;
 use std::fs::File;
 use std::io::Read;
 
-/// Allows for easy reading of the raw bytes of a file.
+/// Allows for the easy reading of the raw bytes of a file in an incremental way.
 pub struct Reader {
     pub bytes: Vec<u8>,
     pub index: usize,
 }
 
-/// Creates a reader for a given file.
-pub fn new(filename: &str) -> Reader {
-    let filename_string = filename.to_string();
-    let mut f = File::open(&filename_string).expect("no file found");
-    let metadata = fs::metadata(&filename_string).expect("unable to read metadata");
-    let mut buffer = vec![0; metadata.len() as usize];
-    f.read_exact(&mut buffer).expect("buffer overflow");
-
-    Reader {
-        bytes: buffer,
-        index: 0,
-    }
-}
-
 impl Reader {
+    /// Make a new reader for a passed file.
+    pub fn new(filename: &str) -> Reader {
+        let filename_string = filename.to_string();
+        let mut f = File::open(&filename_string).expect("no file found");
+        let metadata = fs::metadata(&filename_string).expect("unable to read metadata");
+        let mut buffer = vec![0; metadata.len() as usize];
+        f.read_exact(&mut buffer).expect("buffer overflow");
+
+        Reader {
+            bytes: buffer,
+            index: 0,
+        }
+    }
+
     /// Reads and advances a single byte.
     pub fn g1(&mut self) -> u8 {
         self.index += 1;
