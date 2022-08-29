@@ -1,131 +1,6 @@
-/// This module contains the code for the java class file parser.
-use crate::reader;
+//! This module contains the code for the java class file parser.
+use crate::java_class::*;
 use crate::reader::Reader;
-
-struct ClassFile {
-    magic: u32,
-    minor_version: u16,
-    major_version: u16,
-    constant_pool_count: u16,
-    constant_pool: Vec<ConstantPoolEntry>,
-    access_flags: u16,
-    this_class: u16,
-    super_class: u16,
-    interfaces_count: u16,
-    interfaces: Vec<Interface>,
-    fields_count: u16,
-    fields: Vec<Field>,
-    methods_count: u16,
-    methods: Vec<Method>,
-    attributes_count: u16,
-    attributes: Vec<Attribute>,
-}
-
-#[derive(Debug)]
-enum ConstantPoolEntry {
-    Utf8(String),
-    Integer(i32),
-    Float(f32),
-    Long(i64),
-    Double(f64),
-    Class(u16),
-    String(u16),
-    FieldRef(u16, u16),
-    MethodRef(u16, u16),
-    InterfaceMethodRef(u16, u16),
-    NameAndType(u16, u16),
-    MethodHandle(u8, u16),
-    MethodType(u16),
-    InvokeDynamic(u16, u16),
-}
-
-struct Interface {
-    name: u16,
-}
-
-struct Field {
-    access_flags: u16,
-    name: u16,
-    descriptor: u16,
-    attributes_count: u16,
-    attributes: Vec<Attribute>,
-}
-
-struct Method {
-    access_flags: u16,
-    name_index: u16,
-    descriptor_index: u16,
-    attributes_count: u16,
-    attributes: Vec<Attribute>,
-}
-
-#[derive(Debug)]
-enum Attribute {
-    ConstantValue(ConstantValueAttribute),
-    Code(CodeAttribute),
-    StackMapTable(StackMapTableAttribute),
-    Exceptions(ExceptionsAttribute),
-    SourceFile(SourceFileAttribute),
-    LineNumberTable(LineNumberTableAttribute),
-}
-
-#[derive(Debug)]
-struct ConstantValueAttribute {
-    attribute_name_index: u16,
-    attribute_length: u32,
-    constant_value_index: u16,
-}
-
-#[derive(Debug)]
-struct CodeAttribute {
-    attribute_name_index: u16,
-    attribute_length: u32,
-    max_stack: u16,
-    max_locals: u16,
-    code_length: u32,
-    code: Vec<u8>,
-    exception_table_length: u16,
-    exception_table: Vec<u8>,
-    attributes_count: u16,
-    attributes: Vec<Attribute>,
-}
-
-#[derive(Debug)]
-struct StackMapTableAttribute {
-    attribute_name_index: u16,
-    attribute_length: u32,
-    number_of_entries: u16,
-    entries: Vec<u8>,
-}
-
-#[derive(Debug)]
-struct ExceptionsAttribute {
-    attribute_name_index: u16,
-    attribute_length: u32,
-    number_of_exceptions: u16,
-    exception_index_table: Vec<u8>,
-}
-
-#[derive(Debug)]
-struct SourceFileAttribute {
-    attribute_name_index: u16,
-    attribute_length: u32,
-    sourcefile_index: u16,
-}
-
-#[derive(Debug)]
-struct LineNumberTableElement {
-    start_pc: u16,
-    line_number: u16,
-}
-
-#[derive(Debug)]
-struct LineNumberTableAttribute {
-    attribute_name_index: u16,
-    attribute_length: u32,
-    line_number_table_length: u16,
-    line_number_table: Vec<LineNumberTableElement>,
-}
 
 fn parse_constant_pool(r: &mut Reader, constant_pool_count: u16) -> Vec<ConstantPoolEntry> {
     let mut constant_pool = Vec::new();
@@ -154,6 +29,40 @@ fn parse_constant_pool(r: &mut Reader, constant_pool_count: u16) -> Vec<Constant
     }
 
     constant_pool
+}
+
+fn parse_class_flags(raw_byte: u16) -> Vec<ClassFlags> {
+    let mut class_flags = Vec::new();
+
+    if raw_byte & ClassFlags::Public as u16 != 0 {
+        class_flags.push(ClassFlags::Public);
+    }
+    if raw_byte & ClassFlags::Final as u16 != 0 {
+        class_flags.push(ClassFlags::Final);
+    }
+    if raw_byte & ClassFlags::Super as u16 != 0 {
+        class_flags.push(ClassFlags::Super);
+    }
+    if raw_byte & ClassFlags::Interface as u16 != 0 {
+        class_flags.push(ClassFlags::Interface);
+    }
+    if raw_byte & ClassFlags::Abstract as u16 != 0 {
+        class_flags.push(ClassFlags::Abstract);
+    }
+    if raw_byte & ClassFlags::Synthetic as u16 != 0 {
+        class_flags.push(ClassFlags::Synthetic);
+    }
+    if raw_byte & ClassFlags::Annotation as u16 != 0 {
+        class_flags.push(ClassFlags::Annotation);
+    }
+    if raw_byte & ClassFlags::Enum as u16 != 0 {
+        class_flags.push(ClassFlags::Enum);
+    }
+    if raw_byte & ClassFlags::Module as u16 != 0 {
+        class_flags.push(ClassFlags::Module);
+    }
+
+    class_flags
 }
 
 fn parse_interfaces(r: &mut Reader, interfaces_count: u16) -> Vec<Interface> {
@@ -306,53 +215,9 @@ fn parse_attributes(
     attributes
 }
 
-fn pretty_print_class(cf: &ClassFile) {
-    println!("magic: {:X}", cf.magic);
-    println!("minor_version: {}", cf.minor_version);
-    println!("major_version: {}", cf.major_version);
-    println!("CONSTANT POOL ({} items):", cf.constant_pool_count);
-    for (i, c) in cf.constant_pool.iter().enumerate() {
-        println!("  {:0width$} | {:?}", i, c, width = 2);
-    }
-    println!("access_flags: {}", cf.access_flags);
-    println!("this_class: {}", cf.this_class);
-    println!("super_class: {}", cf.super_class);
-    println!("INTERFACES ({} items):", cf.interfaces_count);
-    for i in &cf.interfaces {
-        println!("  {}", i.name);
-    }
-    println!("FIELDS ({} items):", cf.fields_count);
-    for f in &cf.fields {
-        println!("  access_flags: {}", f.access_flags);
-        println!("  name: {}", f.name);
-        println!("  descriptor: {}", f.descriptor);
-        println!("  attributes_count: {}", f.attributes_count);
-        for a in &f.attributes {
-            println!("    {:?}", a);
-        }
-    }
-    println!("METHODS ({} items):", cf.methods_count);
-    for (i, m) in cf.methods.iter().enumerate() {
-        println!("  method {:#?}:", i);
-        println!("      access_flags: {}", m.access_flags);
-        println!("      name: {}", m.name_index);
-        println!("      descriptor: {}", m.descriptor_index);
-        println!("      attributes_count: {}", m.attributes_count);
-        println!("      attributes:");
-        for a in &m.attributes {
-            println!("          {:?}", a);
-        }
-    }
-
-    println!("ATTRIBUTES ({} items):", cf.attributes_count);
-    for a in &cf.attributes {
-        println!("  {:?}", a);
-    }
-}
-
 pub fn parse_file_test() {
     let mut r =
-        reader::new("C:\\Users\\m\\CLionProjects\\rustjava\\src\\java_tests\\HelloWorld.class");
+        Reader::new("C:\\Users\\m\\CLionProjects\\rustjava\\src\\java_tests\\HelloWorld.class");
 
     let magic = r.g4();
     let minor_version = r.g2();
@@ -361,7 +226,7 @@ pub fn parse_file_test() {
     let constant_pool_count = r.g2();
     let constant_pool = parse_constant_pool(&mut r, constant_pool_count);
 
-    let access_flags = r.g2();
+    let access_flags = parse_class_flags(r.g2());
     let this_class = r.g2();
     let super_class = r.g2();
 
@@ -396,6 +261,8 @@ pub fn parse_file_test() {
         attributes,
     };
 
+    println!("{}", cf);
+
     // println!("{:?}", cf);
-    pretty_print_class(&cf);
+    // pretty_print_class(&cf);
 }
