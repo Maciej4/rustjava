@@ -31,40 +31,6 @@ fn parse_constant_pool(r: &mut Reader, constant_pool_count: u16) -> Vec<Constant
     constant_pool
 }
 
-fn parse_class_flags(raw_byte: u16) -> Vec<ClassFlags> {
-    let mut class_flags = Vec::new();
-
-    if raw_byte & ClassFlags::Public as u16 != 0 {
-        class_flags.push(ClassFlags::Public);
-    }
-    if raw_byte & ClassFlags::Final as u16 != 0 {
-        class_flags.push(ClassFlags::Final);
-    }
-    if raw_byte & ClassFlags::Super as u16 != 0 {
-        class_flags.push(ClassFlags::Super);
-    }
-    if raw_byte & ClassFlags::Interface as u16 != 0 {
-        class_flags.push(ClassFlags::Interface);
-    }
-    if raw_byte & ClassFlags::Abstract as u16 != 0 {
-        class_flags.push(ClassFlags::Abstract);
-    }
-    if raw_byte & ClassFlags::Synthetic as u16 != 0 {
-        class_flags.push(ClassFlags::Synthetic);
-    }
-    if raw_byte & ClassFlags::Annotation as u16 != 0 {
-        class_flags.push(ClassFlags::Annotation);
-    }
-    if raw_byte & ClassFlags::Enum as u16 != 0 {
-        class_flags.push(ClassFlags::Enum);
-    }
-    if raw_byte & ClassFlags::Module as u16 != 0 {
-        class_flags.push(ClassFlags::Module);
-    }
-
-    class_flags
-}
-
 fn parse_interfaces(r: &mut Reader, interfaces_count: u16) -> Vec<Interface> {
     let mut interfaces = Vec::new();
 
@@ -193,11 +159,12 @@ fn parse_attributes(
                 }
 
                 Attribute::InnerClasses(InnerClassesAttribute {
-                attribute_name_index,
-                attribute_length,
-                number_of_classes,
-                classes,
-            })},
+                    attribute_name_index,
+                    attribute_length,
+                    number_of_classes,
+                    classes,
+                })
+            }
             "EnclosingMethod" => Attribute::EnclosingMethod(EnclosingMethodAttribute {
                 attribute_name_index,
                 attribute_length,
@@ -235,7 +202,7 @@ fn parse_attributes(
                     line_number_table_length,
                     line_number_table,
                 })
-            },
+            }
             "LocalVariableTable" => {
                 let local_variable_table_length = r.g2();
                 let mut local_variable_table = Vec::new();
@@ -256,7 +223,7 @@ fn parse_attributes(
                     local_variable_table_length,
                     local_variable_table,
                 })
-            },
+            }
             "LocalVariableTypeTable" => {
                 let local_variable_type_table_length = r.g2();
                 let mut local_variable_type_table = Vec::new();
@@ -277,7 +244,7 @@ fn parse_attributes(
                     local_variable_type_table_length,
                     local_variable_type_table,
                 })
-            },
+            }
             "Deprecated" => Attribute::Deprecated(DeprecatedAttribute {
                 attribute_name_index,
                 attribute_length,
@@ -306,7 +273,7 @@ pub fn parse_file_test() {
     let constant_pool_count = r.g2();
     let constant_pool = parse_constant_pool(&mut r, constant_pool_count);
 
-    let access_flags = parse_class_flags(r.g2());
+    let access_flags = ClassFlags::parse(r.g2());
     let this_class = r.g2();
     let super_class = r.g2();
 
@@ -342,7 +309,4 @@ pub fn parse_file_test() {
     };
 
     println!("{}", cf);
-
-    // println!("{:?}", cf);
-    // pretty_print_class(&cf);
 }

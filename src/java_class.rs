@@ -21,14 +21,68 @@ pub struct ClassFile {
     pub attributes: Vec<Attribute>,
 }
 
-impl fmt::Display for ClassFile {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{:X} v{}.{}\n\
-            Constant Pool ({} entries): {:?}\n\
-            Access Flags: {:?}\n\
-            This Class: {} Super class: {}\n\
+impl ClassFile {
+    pub fn pretty_print_constant(&self, n: usize) -> String {
+        match self.constant_pool[n - 1] {
+            ConstantPoolEntry::Utf8(ref s) => format!("[{}] Utf8 {}", n, s),
+            ConstantPoolEntry::Integer(i) => format!("[{}] Integer {}", n, i),
+            ConstantPoolEntry::Float(f) => format!("[{}] Float {}", n, f),
+            ConstantPoolEntry::Long(l) => format!("[{}] Long {}", n, l),
+            ConstantPoolEntry::Double(d) => format!("[{}] Double {}", n, d),
+            ConstantPoolEntry::Class(i) => {
+                let s = self.pretty_print_constant(i as usize);
+                format!("[{}] Class {}", n, s)
+            }
+            ConstantPoolEntry::String(i) => {
+                let s = self.pretty_print_constant(i as usize);
+                format!("[{}] String {}", n, s)
+            }
+            ConstantPoolEntry::FieldRef(class_index, name_and_type_index) => {
+                let class_name = self.pretty_print_constant(class_index as usize);
+                let name_and_type = self.pretty_print_constant(name_and_type_index as usize);
+                format!("[{}] FieldRef {} | {} (field ref)", n, class_name, name_and_type)
+            }
+            ConstantPoolEntry::MethodRef(class_index, name_and_type_index) => {
+                let class_name = self.pretty_print_constant(class_index as usize);
+                let name_and_type = self.pretty_print_constant(name_and_type_index as usize);
+                format!("[{}] MethodRef {} | {}", n, class_name, name_and_type)
+            }
+            ConstantPoolEntry::InterfaceMethodRef(class_index, name_and_type_index) => {
+                let class_name = self.pretty_print_constant(class_index as usize);
+                let name_and_type = self.pretty_print_constant(name_and_type_index as usize);
+                format!("[{}] InterfaceMethodRef {} | {}", n, class_name, name_and_type)
+            }
+            ConstantPoolEntry::NameAndType(name_index, descriptor_index) => {
+                let name = self.pretty_print_constant(name_index as usize);
+                let descriptor = self.pretty_print_constant(descriptor_index as usize);
+                format!("[{}] NameAndType {} | {}", n, name, descriptor)
+            }
+            ConstantPoolEntry::MethodHandle(reference_kind, reference_index) => {
+                let reference = self.pretty_print_constant(reference_index as usize);
+                format!("[{}] MethodHandle {}", n, reference)
+            }
+            ConstantPoolEntry::MethodType(descriptor_index) => {
+                let descriptor = self.pretty_print_constant(descriptor_index as usize);
+                format!("[{}] MethodType {}", n, descriptor)
+            }
+            ConstantPoolEntry::InvokeDynamic(bootstrap_method_attr_index, name_and_type_index) => {
+                let bootstrap_method_attr =
+                    self.pretty_print_constant(bootstrap_method_attr_index as usize);
+                let name_and_type = self.pretty_print_constant(name_and_type_index as usize);
+                format!("[{}] InvokeDynamic {}", n, name_and_type)
+            }
+        }
+    }
+
+    pub fn pretty_print(&self) -> String {
+        let mut constant_pool_pretty_vec = Vec::new();
+        for i in 1..self.constant_pool_count as usize {
+            constant_pool_pretty_vec.push(self.pretty_print_constant(i));
+        }
+
+        format!(
+            "{:X} v{}.{} | Class: {} | Access flags: {:?}  | Superclass: {}\n\
+            Constant Pool ({} entries): \n  {}\n\
             Interfaces ({} entries): {:?}\n\
             Fields ({} entries): {:?}\n\
             Methods ({} entries): {:?}\n\
@@ -36,11 +90,11 @@ impl fmt::Display for ClassFile {
             self.magic,
             self.major_version,
             self.minor_version,
-            self.constant_pool_count,
-            self.constant_pool,
+            self.pretty_print_constant(self.this_class as usize),
             self.access_flags,
-            self.this_class,
-            self.super_class,
+            self.pretty_print_constant(self.super_class as usize),
+            self.constant_pool_count,
+            constant_pool_pretty_vec.join("\n  "),
             self.interfaces_count,
             self.interfaces,
             self.fields_count,
@@ -50,6 +104,12 @@ impl fmt::Display for ClassFile {
             self.attributes_count,
             self.attributes
         )
+    }
+}
+
+impl fmt::Display for ClassFile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.pretty_print().fmt(f)
     }
 }
 
@@ -84,6 +144,40 @@ pub enum ClassFlags {
     Module = 0x8000,
 }
 
+impl ClassFlags {
+    pub fn parse(flags: u16) -> Vec<ClassFlags> {
+        let mut flags_vec = Vec::new();
+        if flags & 0x0001 != 0 {
+            flags_vec.push(ClassFlags::Public);
+        }
+        if flags & 0x0010 != 0 {
+            flags_vec.push(ClassFlags::Final);
+        }
+        if flags & 0x0020 != 0 {
+            flags_vec.push(ClassFlags::Super);
+        }
+        if flags & 0x0200 != 0 {
+            flags_vec.push(ClassFlags::Interface);
+        }
+        if flags & 0x0400 != 0 {
+            flags_vec.push(ClassFlags::Abstract);
+        }
+        if flags & 0x1000 != 0 {
+            flags_vec.push(ClassFlags::Synthetic);
+        }
+        if flags & 0x2000 != 0 {
+            flags_vec.push(ClassFlags::Annotation);
+        }
+        if flags & 0x4000 != 0 {
+            flags_vec.push(ClassFlags::Enum);
+        }
+        if flags & 0x8000 != 0 {
+            flags_vec.push(ClassFlags::Module);
+        }
+        flags_vec
+    }
+}
+
 #[derive(Debug)]
 pub struct Interface {
     pub name: u16,
@@ -106,7 +200,6 @@ pub struct Method {
     pub attributes_count: u16,
     pub attributes: Vec<Attribute>,
 }
-
 
 /// Attributes are used to store additional information about a class.
 #[derive(Debug)]
@@ -260,5 +353,3 @@ pub struct DeprecatedAttribute {
     pub attribute_name_index: u16,
     pub attribute_length: u32,
 }
-
-

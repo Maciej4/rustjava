@@ -1,3 +1,4 @@
+mod bytecode;
 mod class_file_parser;
 mod java_class;
 mod reader;
