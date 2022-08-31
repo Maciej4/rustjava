@@ -179,6 +179,40 @@ fn parse_attributes(
                 number_of_exceptions: r.g2(),
                 exception_index_table: r.g(attribute_length as usize),
             }),
+            "InnerClasses" => {
+                let number_of_classes = r.g2();
+                let mut classes = Vec::new();
+
+                for _ in 0..number_of_classes {
+                    classes.push(InnerClassElement {
+                        inner_class_info_index: r.g2(),
+                        outer_class_info_index: r.g2(),
+                        inner_name_index: r.g2(),
+                        inner_class_access_flags: r.g2(),
+                    });
+                }
+
+                Attribute::InnerClasses(InnerClassesAttribute {
+                attribute_name_index,
+                attribute_length,
+                number_of_classes,
+                classes,
+            })},
+            "EnclosingMethod" => Attribute::EnclosingMethod(EnclosingMethodAttribute {
+                attribute_name_index,
+                attribute_length,
+                class_index: r.g2(),
+                method_index: r.g2(),
+            }),
+            "Synthetic" => Attribute::Synthetic(SyntheticAttribute {
+                attribute_name_index,
+                attribute_length,
+            }),
+            "Signature" => Attribute::Signature(SignatureAttribute {
+                attribute_name_index,
+                attribute_length,
+                signature_index: r.g2(),
+            }),
             "SourceFile" => Attribute::SourceFile(SourceFileAttribute {
                 attribute_name_index,
                 attribute_length,
@@ -201,7 +235,53 @@ fn parse_attributes(
                     line_number_table_length,
                     line_number_table,
                 })
-            }
+            },
+            "LocalVariableTable" => {
+                let local_variable_table_length = r.g2();
+                let mut local_variable_table = Vec::new();
+
+                for _ in 0..local_variable_table_length {
+                    local_variable_table.push(LocalVariableTableElement {
+                        start_pc: r.g2(),
+                        length: r.g2(),
+                        name_index: r.g2(),
+                        descriptor_index: r.g2(),
+                        index: r.g2(),
+                    });
+                }
+
+                Attribute::LocalVariableTable(LocalVariableTableAttribute {
+                    attribute_name_index,
+                    attribute_length,
+                    local_variable_table_length,
+                    local_variable_table,
+                })
+            },
+            "LocalVariableTypeTable" => {
+                let local_variable_type_table_length = r.g2();
+                let mut local_variable_type_table = Vec::new();
+
+                for _ in 0..local_variable_type_table_length {
+                    local_variable_type_table.push(LocalVariableTypeTableElement {
+                        start_pc: r.g2(),
+                        length: r.g2(),
+                        name_index: r.g2(),
+                        signature_index: r.g2(),
+                        index: r.g2(),
+                    });
+                }
+
+                Attribute::LocalVariableTypeTable(LocalVariableTypeTableAttribute {
+                    attribute_name_index,
+                    attribute_length,
+                    local_variable_type_table_length,
+                    local_variable_type_table,
+                })
+            },
+            "Deprecated" => Attribute::Deprecated(DeprecatedAttribute {
+                attribute_name_index,
+                attribute_length,
+            }),
             _ => panic!("{} is an unsupported attribute type", attribute_str_name),
         });
 

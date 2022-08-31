@@ -107,10 +107,8 @@ pub struct Method {
     pub attributes: Vec<Attribute>,
 }
 
-///
-/// Attributes are used to store additional information about a class.
-///
 
+/// Attributes are used to store additional information about a class.
 #[derive(Debug)]
 pub enum Attribute {
     ConstantValue(ConstantValueAttribute),
@@ -118,8 +116,14 @@ pub enum Attribute {
     StackMapTable(StackMapTableAttribute),
     Exceptions(ExceptionsAttribute),
     InnerClasses(InnerClassesAttribute),
+    EnclosingMethod(EnclosingMethodAttribute),
+    Synthetic(SyntheticAttribute),
+    Signature(SignatureAttribute),
     SourceFile(SourceFileAttribute),
     LineNumberTable(LineNumberTableAttribute),
+    LocalVariableTable(LocalVariableTableAttribute),
+    LocalVariableTypeTable(LocalVariableTypeTableAttribute),
+    Deprecated(DeprecatedAttribute),
 }
 
 #[derive(Debug)]
@@ -164,7 +168,36 @@ pub struct InnerClassesAttribute {
     pub attribute_name_index: u16,
     pub attribute_length: u32,
     pub number_of_classes: u16,
-    pub classes: Vec<u8>,
+    pub classes: Vec<InnerClassElement>,
+}
+
+#[derive(Debug)]
+pub struct InnerClassElement {
+    pub inner_class_info_index: u16,
+    pub outer_class_info_index: u16,
+    pub inner_name_index: u16,
+    pub inner_class_access_flags: u16,
+}
+
+#[derive(Debug)]
+pub struct EnclosingMethodAttribute {
+    pub attribute_name_index: u16,
+    pub attribute_length: u32,
+    pub class_index: u16,
+    pub method_index: u16,
+}
+
+#[derive(Debug)]
+pub struct SyntheticAttribute {
+    pub attribute_name_index: u16,
+    pub attribute_length: u32,
+}
+
+#[derive(Debug)]
+pub struct SignatureAttribute {
+    pub attribute_name_index: u16,
+    pub attribute_length: u32,
+    pub signature_index: u16,
 }
 
 #[derive(Debug)]
@@ -175,15 +208,57 @@ pub struct SourceFileAttribute {
 }
 
 #[derive(Debug)]
-pub struct LineNumberTableElement {
-    pub start_pc: u16,
-    pub line_number: u16,
-}
-
-#[derive(Debug)]
 pub struct LineNumberTableAttribute {
     pub attribute_name_index: u16,
     pub attribute_length: u32,
     pub line_number_table_length: u16,
     pub line_number_table: Vec<LineNumberTableElement>,
 }
+
+#[derive(Debug)]
+pub struct LineNumberTableElement {
+    pub start_pc: u16,
+    pub line_number: u16,
+}
+
+#[derive(Debug)]
+pub struct LocalVariableTableAttribute {
+    pub attribute_name_index: u16,
+    pub attribute_length: u32,
+    pub local_variable_table_length: u16,
+    pub local_variable_table: Vec<LocalVariableTableElement>,
+}
+
+#[derive(Debug)]
+pub struct LocalVariableTableElement {
+    pub start_pc: u16,
+    pub length: u16,
+    pub name_index: u16,
+    pub descriptor_index: u16,
+    pub index: u16,
+}
+
+#[derive(Debug)]
+pub struct LocalVariableTypeTableAttribute {
+    pub attribute_name_index: u16,
+    pub attribute_length: u32,
+    pub local_variable_type_table_length: u16,
+    pub local_variable_type_table: Vec<LocalVariableTypeTableElement>,
+}
+
+#[derive(Debug)]
+pub struct LocalVariableTypeTableElement {
+    pub start_pc: u16,
+    pub length: u16,
+    pub name_index: u16,
+    pub signature_index: u16,
+    pub index: u16,
+}
+
+#[derive(Debug)]
+pub struct DeprecatedAttribute {
+    pub attribute_name_index: u16,
+    pub attribute_length: u32,
+}
+
+
