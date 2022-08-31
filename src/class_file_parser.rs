@@ -262,9 +262,8 @@ fn parse_attributes(
     attributes
 }
 
-pub fn parse_file_test() {
-    let mut r =
-        Reader::new("C:\\Users\\m\\CLionProjects\\rustjava\\src\\java_tests\\HelloWorld.class");
+pub fn parse_file(filename: &str) -> ClassFile {
+    let mut r = Reader::new(filename);
 
     let magic = r.g4();
     let minor_version = r.g2();
@@ -308,5 +307,5 @@ pub fn parse_file_test() {
         attributes,
     };
 
-    println!("{}", cf);
+    cf
 }

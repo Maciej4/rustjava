@@ -40,7 +40,10 @@ impl ClassFile {
             ConstantPoolEntry::FieldRef(class_index, name_and_type_index) => {
                 let class_name = self.pretty_print_constant(class_index as usize);
                 let name_and_type = self.pretty_print_constant(name_and_type_index as usize);
-                format!("[{}] FieldRef {} | {} (field ref)", n, class_name, name_and_type)
+                format!(
+                    "[{}] FieldRef {} | {} (field ref)",
+                    n, class_name, name_and_type
+                )
             }
             ConstantPoolEntry::MethodRef(class_index, name_and_type_index) => {
                 let class_name = self.pretty_print_constant(class_index as usize);
@@ -50,7 +53,10 @@ impl ClassFile {
             ConstantPoolEntry::InterfaceMethodRef(class_index, name_and_type_index) => {
                 let class_name = self.pretty_print_constant(class_index as usize);
                 let name_and_type = self.pretty_print_constant(name_and_type_index as usize);
-                format!("[{}] InterfaceMethodRef {} | {}", n, class_name, name_and_type)
+                format!(
+                    "[{}] InterfaceMethodRef {} | {}",
+                    n, class_name, name_and_type
+                )
             }
             ConstantPoolEntry::NameAndType(name_index, descriptor_index) => {
                 let name = self.pretty_print_constant(name_index as usize);
@@ -199,6 +205,17 @@ pub struct Method {
     pub descriptor_index: u16,
     pub attributes_count: u16,
     pub attributes: Vec<Attribute>,
+}
+
+impl Method {
+    pub fn get_code_attribute(&self) -> Vec<u8> {
+        for attr in &self.attributes {
+            if let Attribute::Code(code_attr) = attr {
+                return code_attr.code.clone();
+            }
+        }
+        panic!("No code attribute found")
+    }
 }
 
 /// Attributes are used to store additional information about a class.
