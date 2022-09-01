@@ -7,7 +7,7 @@ mod reader;
 
 fn main() {
     let cf = class_file_parser::parse_file(
-        "C:\\Users\\m\\CLionProjects\\rustjava\\src\\java_tests\\Main.class",
+        ".\\src\\java_tests\\Main.class",
     );
     println!("{}", cf);
 
