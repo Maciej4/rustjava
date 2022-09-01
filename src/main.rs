@@ -1,4 +1,4 @@
-use crate::bytecode::Bytecode;
+use crate::bytecode::{Bytecode, Primitive};
 
 mod bytecode;
 mod class_file_parser;
@@ -17,7 +17,14 @@ fn main() {
         bytecodes.push(Bytecode::new(method.get_code_attribute()));
     }
 
-    for bytecode in bytecodes {
-        println!("{:?}", bytecode);
-    }
+    // for bytecode in bytecodes {
+    //     println!("{:?}", bytecode);
+    // }
+
+    println!("{:?}", bytecodes[1]);
+
+    bytecodes[1].local_variables.push(Primitive::Int(1));
+    bytecodes[1].local_variables.push(Primitive::Int(2));
+
+    bytecodes[1].run();
 }
