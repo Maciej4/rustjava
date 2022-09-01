@@ -1,4 +1,4 @@
-use crate::java_class::{ConstantPoolEntry};
+use crate::java_class::ConstantPoolEntry;
 
 #[derive(Debug, Clone)]
 pub enum Instruction {
@@ -273,6 +273,7 @@ pub struct Bytecode {
     pub instructions: Vec<Instruction>,
     pub stack: Vec<Primitive>,
     pub local_variables: Vec<Primitive>,
+    pub constant_pool: Vec<ConstantPoolEntry>,
 }
 
 impl Bytecode {
@@ -298,7 +299,7 @@ impl Bytecode {
         (((b1 as i32) << 24) | ((b2 as i32) << 16) | ((b3 as i32) << 8) | (b4 as i32)) as usize
     }
 
-    pub fn new(code: Vec<u8>) -> Bytecode {
+    pub fn new(code: Vec<u8>, constant_pool: Vec<ConstantPoolEntry>) -> Bytecode {
         let mut instructions: Vec<Instruction> = Vec::new();
         let mut pc: usize = 0;
         let mut past_byte_pos: usize = 0;
@@ -534,6 +535,7 @@ impl Bytecode {
             instructions,
             stack: Vec::with_capacity(5),
             local_variables: Vec::with_capacity(5),
+            constant_pool,
         }
     }
 
@@ -546,6 +548,63 @@ impl Bytecode {
         self.stack.push(Primitive::eval2(b, a, o));
     }
 
+    pub fn comp(&mut self, comparator: Comparison) -> bool {
+        let a = self.stack.pop().expect("empty stack");
+
+        match a {
+            Primitive::Int(x) => match comparator {
+                Comparison::Equal => x == 0,
+                Comparison::NotEqual => x != 0,
+                Comparison::LessThan => x < 0,
+                Comparison::GreaterThanOrEqual => x >= 0,
+                Comparison::GreaterThan => x > 0,
+                Comparison::LessThanOrEqual => x <= 0,
+            }
+            Primitive::Long(x) => match comparator {
+                Comparison::Equal => x == 0,
+                Comparison::NotEqual => x != 0,
+                Comparison::LessThan => x < 0,
+                Comparison::GreaterThanOrEqual => x >= 0,
+                Comparison::GreaterThan => x > 0,
+                Comparison::LessThanOrEqual => x <= 0,
+            }
+            Primitive::Float(x) => match comparator {
+                Comparison::Equal => x == 0.0,
+                Comparison::NotEqual => x != 0.0,
+                Comparison::LessThan => x < 0.0,
+                Comparison::GreaterThanOrEqual => x >= 0.0,
+                Comparison::GreaterThan => x > 0.0,
+                Comparison::LessThanOrEqual => x <= 0.0,
+            }
+            Primitive::Double(x) => match comparator {
+                Comparison::Equal => x == 0.0,
+                Comparison::NotEqual => x != 0.0,
+                Comparison::LessThan => x < 0.0,
+                Comparison::GreaterThanOrEqual => x >= 0.0,
+                Comparison::GreaterThan => x > 0.0,
+                Comparison::LessThanOrEqual => x <= 0.0,
+            }
+            _ => panic!("unsupported type for comparison"),
+        }
+    }
+
+    pub fn i_comp(&mut self, comparator: Comparison) -> bool {
+        let a = self.stack.pop().expect("empty stack");
+        let b = self.stack.pop().expect("empty stack");
+
+        match (b, a) {
+            (Primitive::Int(x), Primitive::Int(y)) => match comparator {
+                Comparison::Equal => x == y,
+                Comparison::NotEqual => x != y,
+                Comparison::LessThan => x < y,
+                Comparison::GreaterThanOrEqual => x >= y,
+                Comparison::GreaterThan => x > y,
+                Comparison::LessThanOrEqual => x <= y,
+            },
+            _ => panic!("comparing non-int types"),
+        }
+    }
+
     pub fn run(&mut self) {
         while self.pc < self.instructions.len() {
             self.step();
@@ -555,7 +614,7 @@ impl Bytecode {
     pub fn step(&mut self) {
         let instruction = self.instructions[self.pc].clone();
 
-        let no_step = false;
+        let mut no_step = false;
 
         // TODO: Implement array operations
 
@@ -570,6 +629,9 @@ impl Bytecode {
             }
             // Instruction::ALoad(stored_type) => {}
             Instruction::Store(index, _type_to_store) => {
+                if self.local_variables.len() <= index {
+                    self.local_variables.resize(index + 1, Primitive::Null)
+                };
                 self.local_variables[index] = self.stack.pop().expect("empty stack")
             }
             // Instruction::AStore(stored_type) => {}
@@ -620,11 +682,30 @@ impl Bytecode {
             Instruction::FCmpG => {}
             Instruction::DCmpL => {}
             Instruction::DCmpG => {}
-            Instruction::If(branch_offset, comparator) => {}
-            Instruction::IfICmp(branch_offset, comparator) => {}
-            Instruction::Goto(branch_offset) => {}
-            Instruction::Jsr(branch_offset) => {}
-            Instruction::Ret(index) => {}
+            Instruction::If(branch_offset, comparator) => {if self.comp(comparator) {
+                self.pc += branch_offset;
+                no_step = true;
+            }}
+            Instruction::IfICmp(branch_offset, comparator) => {if self.i_comp(comparator) {
+                self.pc += branch_offset;
+                no_step = true;
+            }}
+            Instruction::Goto(branch_offset) => {
+                self.pc += branch_offset;
+                no_step = true;
+            }
+            Instruction::Jsr(branch_offset) => {
+                self.stack.push(Primitive::Reference(self.pc + 1));
+                self.pc += branch_offset;
+                no_step = true;
+            }
+            Instruction::Ret(index) => {
+                self.pc = match self.local_variables[index] {
+                    Primitive::Reference(x) => x,
+                    _ => panic!("invalid return address"),
+                };
+                no_step = true;
+            }
             // Instruction::TableSwitch(usize, usize, usize) => {},
             // Instruction::LookupSwitch(usize, usize, usize) => {},
             Instruction::Return(return_type) => {}

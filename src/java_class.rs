@@ -119,7 +119,7 @@ impl fmt::Display for ClassFile {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ConstantPoolEntry {
     Utf8(String),
     Integer(i32),

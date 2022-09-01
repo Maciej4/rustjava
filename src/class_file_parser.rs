@@ -253,7 +253,8 @@ fn parse_attributes(
         });
 
         if r.pos() != attribute_start_position + attribute_length as usize {
-            panic!("attribute was not parsed completely");
+            println!("{:?} was not parsed completely", ct[attribute_name_index as usize]);
+            // panic!("attribute was not parsed completely");
         }
 
         r.set_pos(attribute_start_position + attribute_length as usize);
