@@ -13,6 +13,7 @@ pub struct StackFrame {
     pub locals: Vec<Primitive>,
     pub stack: Vec<Primitive>,
     pub method: Method,
+    pub class_name: String,
 }
 
 impl StackFrame {
@@ -117,16 +118,17 @@ impl JVM {
     }
 
     pub fn run(&mut self) {
-        let method = self.class_area["Main"].methods["main"].clone();
+        let method = self.class_area["Main"].methods["main([Ljava/lang/String;)V"].clone();
 
         self.stack_frames.push(StackFrame {
             pc: 0,
             locals: Vec::new(),
             stack: Vec::new(),
             method,
+            class_name: "Main".to_string(),
         });
 
-        while self.stack_frames[0].pc < self.stack_frames[0].method.instructions.len() {
+        while !self.stack_frames.is_empty() {
             self.step();
         }
     }
@@ -162,7 +164,7 @@ impl JVM {
                     curr_sf.stack.pop();
                 }
             }
-            Instruction::Dup => {}
+            Instruction::Dup => {} // TODO: Implement dup instructions
             Instruction::DupX1 => {}
             Instruction::DupX2 => {}
             Instruction::Dup2 => {}
@@ -229,9 +231,23 @@ impl JVM {
                 };
                 no_step = true;
             }
-            // Instruction::TableSwitch(usize, usize, usize) => {},
+            // Instruction::TableSwitch(usize, usize, usize) => {}, // TODO: Implement table switch and lookup switch
             // Instruction::LookupSwitch(usize, usize, usize) => {},
-            Instruction::Return(return_type) => {}
+            Instruction::Return(_return_type) => {
+                // TODO: Check that the return type matches the method's return type
+
+                let return_value = curr_sf.stack.pop().expect("empty stack");
+                let stack_frames_length = self.stack_frames.len() - 1;
+                self.stack_frames.pop();
+
+                if !self.stack_frames.is_empty() {
+                    self.stack_frames[stack_frames_length - 1]
+                        .stack
+                        .push(return_value);
+                }
+
+                return;
+            }
             Instruction::GetStatic(index) => {}
             Instruction::PutStatic(index) => {}
             Instruction::GetField(index) => {}
@@ -240,7 +256,36 @@ impl JVM {
                 println!("{:?}", curr_sf.stack);
             }
             Instruction::InvokeSpecial(index) => {}
-            Instruction::InvokeStatic(index) => {}
+            Instruction::InvokeStatic(index) => {
+                let (class_name, method_name, method_descriptor) = ConstantPoolEntry::method_ref_parser(
+                    index, &self.class_area[&curr_sf.class_name].constant_pool[..],
+                );
+
+                let method = self.class_area[&class_name].methods[&format!("{}{}", method_name, method_descriptor)].clone();
+
+                let mut method_parameters: Vec<Primitive> = Vec::new();
+
+                let param_string_len = method_descriptor.split(')').collect::<Vec<&str>>()[0].len() - 1;
+
+                // TODO: Check that the parameters passed to the method are the correct types
+                for _i in 0..param_string_len {
+                    method_parameters.push(curr_sf.stack.pop().expect("empty stack"));
+                }
+
+                curr_sf.pc += 1;
+
+                let frame = StackFrame {
+                    pc: 0,
+                    locals: method_parameters,
+                    stack: vec![],
+                    method,
+                    class_name: curr_sf.class_name.clone(),
+                };
+
+                self.stack_frames.push(frame);
+
+                return;
+            }
             Instruction::InvokeInterface(index) => {}
             Instruction::InvokeDynamic(index) => {}
             Instruction::New(index) => {}
@@ -248,16 +293,16 @@ impl JVM {
             Instruction::ANewArray(index) => {}
             Instruction::ArrayLength => {}
             Instruction::AThrow => {}
-            Instruction::CheckCast(usize) => {}
-            Instruction::InstanceOf(usize) => {}
+            Instruction::CheckCast(index) => {}
+            Instruction::InstanceOf(index) => {}
             Instruction::MonitorEnter => {}
             Instruction::MonitorExit => {}
             Instruction::Wide(usize) => {}
-            Instruction::MultiANewArray(usize, usize2) => {}
-            Instruction::IfNull(usize) => {}
-            Instruction::IfNonNull(usize) => {}
-            Instruction::GotoW(usize) => {}
-            Instruction::JsrW(usize) => {}
+            Instruction::MultiANewArray(index, dimensions) => {}
+            Instruction::IfNull(branch_offset) => {}
+            Instruction::IfNonNull(branch_offset) => {}
+            Instruction::GotoW(branch_offset) => {}
+            Instruction::JsrW(branch_offset) => {}
             Instruction::Breakpoint => {}
             _ => panic!("unsupported instruction"),
         }

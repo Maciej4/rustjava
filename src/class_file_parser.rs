@@ -1,8 +1,8 @@
 //! This module contains the code for the java class file parser.
+use crate::bytecode::*;
 use crate::java_class::*;
 use crate::jvm::{Class, Method};
 use crate::reader::Reader;
-use crate::bytecode::*;
 use std::collections::HashMap;
 
 fn parse_constant_pool(r: &mut Reader, constant_pool_count: u16) -> Vec<ConstantPoolEntry> {
@@ -434,10 +434,7 @@ pub fn bytes_to_bytecode(code: Vec<u8>) -> Vec<Instruction> {
             129 => Instruction::Or(PrimitiveType::Long),
             130 => Instruction::Xor(PrimitiveType::Int),
             131 => Instruction::Xor(PrimitiveType::Long),
-            132 => Instruction::IInc(
-                u1(&code, &mut pc),
-                u1(&code, &mut pc) as i8,
-            ),
+            132 => Instruction::IInc(u1(&code, &mut pc), u1(&code, &mut pc) as i8),
             133 => Instruction::Convert(PrimitiveType::Int, PrimitiveType::Long),
             134 => Instruction::Convert(PrimitiveType::Int, PrimitiveType::Float),
             135 => Instruction::Convert(PrimitiveType::Int, PrimitiveType::Double),
@@ -461,22 +458,15 @@ pub fn bytes_to_bytecode(code: Vec<u8>) -> Vec<Instruction> {
             153 => Instruction::If(u2(&code, &mut pc), Comparison::Equal),
             154 => Instruction::If(u2(&code, &mut pc), Comparison::NotEqual),
             155 => Instruction::If(u2(&code, &mut pc), Comparison::LessThan),
-            156 => {
-                Instruction::If(u2(&code, &mut pc), Comparison::GreaterThanOrEqual)
-            }
+            156 => Instruction::If(u2(&code, &mut pc), Comparison::GreaterThanOrEqual),
             157 => Instruction::If(u2(&code, &mut pc), Comparison::GreaterThan),
             158 => Instruction::If(u2(&code, &mut pc), Comparison::LessThanOrEqual),
             159 => Instruction::IfICmp(u2(&code, &mut pc), Comparison::Equal),
             160 => Instruction::IfICmp(u2(&code, &mut pc), Comparison::NotEqual),
             161 => Instruction::IfICmp(u2(&code, &mut pc), Comparison::LessThan),
-            162 => Instruction::IfICmp(
-                u2(&code, &mut pc),
-                Comparison::GreaterThanOrEqual,
-            ),
+            162 => Instruction::IfICmp(u2(&code, &mut pc), Comparison::GreaterThanOrEqual),
             163 => Instruction::IfICmp(u2(&code, &mut pc), Comparison::GreaterThan),
-            164 => {
-                Instruction::IfICmp(u2(&code, &mut pc), Comparison::LessThanOrEqual)
-            }
+            164 => Instruction::IfICmp(u2(&code, &mut pc), Comparison::LessThanOrEqual),
             165 => Instruction::IfICmp(u2(&code, &mut pc), Comparison::Equal),
             166 => Instruction::IfICmp(u2(&code, &mut pc), Comparison::NotEqual),
             167 => Instruction::Goto(u2(&code, &mut pc)),
@@ -544,21 +534,21 @@ pub fn parse_file_to_class(filename: &str) -> Class {
     let constant_pool_count = r.g2();
     let constant_pool = parse_constant_pool(&mut r, constant_pool_count);
 
-    let access_flags = ClassFlags::parse(r.g2());
+    let _access_flags = ClassFlags::parse(r.g2());
     let this_class = r.g2();
-    let super_class = r.g2();
+    let _super_class = r.g2();
 
     let interfaces_count = r.g2();
-    let interfaces = parse_interfaces(&mut r, interfaces_count);
+    let _interfaces = parse_interfaces(&mut r, interfaces_count);
 
     let fields_count = r.g2();
-    let fields = parse_fields(&mut r, &constant_pool, fields_count);
+    let _fields = parse_fields(&mut r, &constant_pool, fields_count);
 
     let methods_count = r.g2();
     let unparsed_methods = parse_methods(&mut r, &constant_pool, methods_count);
 
     let attributes_count = r.g2();
-    let attributes = parse_attributes(&mut r, &constant_pool, attributes_count);
+    let _attributes = parse_attributes(&mut r, &constant_pool, attributes_count);
 
     let name_as_cpe = &constant_pool[this_class as usize - 1];
     let name = match name_as_cpe {
@@ -573,10 +563,18 @@ pub fn parse_file_to_class(filename: &str) -> Class {
 
     for up_method in unparsed_methods {
         let name_as_cpe = &constant_pool[up_method.name_index as usize - 1];
+
         let name = match name_as_cpe {
             ConstantPoolEntry::Utf8(name_as_utf8) => name_as_utf8.clone(),
             _ => panic!("method name is not a Utf8Info"),
         };
+
+        let signature = match &constant_pool[up_method.descriptor_index as usize - 1] {
+            ConstantPoolEntry::Utf8(signature_as_utf8) => signature_as_utf8.clone(),
+            _ => panic!("method signature is not a Utf8Info"),
+        };
+
+        let name_and_signature = format!("{}{}", name, signature);
 
         let unparsed_attribute = &up_method.attributes[0];
 
@@ -591,7 +589,7 @@ pub fn parse_file_to_class(filename: &str) -> Class {
             instructions: parsed_bytecode,
         };
 
-        methods.insert(name, parsed_method);
+        methods.insert(name_and_signature, parsed_method);
     }
 
     Class {

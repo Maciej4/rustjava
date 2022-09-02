@@ -1,5 +1,3 @@
-use crate::java_class::ConstantPoolEntry;
-
 #[derive(Debug, Clone)]
 pub enum Instruction {
     Nop,

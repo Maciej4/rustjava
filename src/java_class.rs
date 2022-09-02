@@ -17,6 +17,54 @@ pub enum ConstantPoolEntry {
     InvokeDynamic(u16, u16),
 }
 
+impl ConstantPoolEntry {
+    pub fn class_parser(index: usize, constant_pool: &[ConstantPoolEntry]) -> String {
+        match &constant_pool[index - 1] {
+            ConstantPoolEntry::Class(index) => match &constant_pool[*index as usize - 1] {
+                ConstantPoolEntry::Utf8(s) => s.clone(),
+                _ => panic!("Invalid constant pool entry"),
+            },
+            _ => panic!("Invalid constant pool entry"),
+        }
+    }
+
+    pub fn name_and_type_parser(
+        index: usize,
+        constant_pool: &[ConstantPoolEntry],
+    ) -> (String, String) {
+        match &constant_pool[index - 1] {
+            ConstantPoolEntry::NameAndType(name_index, descriptor_index) => {
+                let name = match &constant_pool[*name_index as usize - 1] {
+                    ConstantPoolEntry::Utf8(name) => name.clone(),
+                    _ => panic!("Invalid constant pool entry"),
+                };
+                let descriptor = match &constant_pool[*descriptor_index as usize - 1] {
+                    ConstantPoolEntry::Utf8(descriptor) => descriptor.clone(),
+                    _ => panic!("Invalid constant pool entry"),
+                };
+                (name, descriptor)
+            }
+            _ => panic!("Invalid constant pool entry"),
+        }
+    }
+
+    pub fn method_ref_parser(index: usize, constant_pool: &[ConstantPoolEntry]) -> (String, String, String) {
+        match &constant_pool[index - 1] {
+            ConstantPoolEntry::MethodRef(class_index, name_and_type_index) => {
+                let class_name = ConstantPoolEntry::class_parser(*class_index as usize, constant_pool);
+
+                let (method_name, method_type) = ConstantPoolEntry::name_and_type_parser(
+                    *name_and_type_index as usize,
+                    constant_pool,
+                );
+
+                (class_name, method_name, method_type)
+            }
+            _ => panic!("Invalid constant pool entry"),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum ClassFlags {
     Public = 0x0001,
