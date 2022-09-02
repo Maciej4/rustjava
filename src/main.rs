@@ -3,23 +3,17 @@ use crate::bytecode::*;
 mod bytecode;
 mod class_file_parser;
 mod java_class;
+mod jvm;
 mod reader;
 
 fn main() {
-    let cf = class_file_parser::parse_file(".\\src\\java_tests\\If.class");
-    println!("{}", cf);
+    let classes = vec![class_file_parser::parse_file_to_class(
+        ".\\src\\java_tests\\If.class",
+    )];
 
-    let mut bytecodes = Vec::new();
+    println!("{:?}", classes);
 
-    for method in cf.methods {
-        bytecodes.push(Bytecode::new(method.get_code_attribute(), cf.constant_pool.clone()));
-    }
+    let mut jvm = jvm::JVM::new(classes);
 
-    // for bytecode in bytecodes {
-    //     println!("{:?}", bytecode);
-    // }
-
-    println!("{:?}", bytecodes[1]);
-
-    bytecodes[1].run();
+    jvm.run();
 }

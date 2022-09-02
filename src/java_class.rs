@@ -1,124 +1,4 @@
 //! This module contains the data structures used to represent java classes.
-use std::fmt;
-
-/// The overall structure for a java class.
-pub struct ClassFile {
-    pub magic: u32,
-    pub minor_version: u16,
-    pub major_version: u16,
-    pub constant_pool_count: u16,
-    pub constant_pool: Vec<ConstantPoolEntry>,
-    pub access_flags: Vec<ClassFlags>,
-    pub this_class: u16,
-    pub super_class: u16,
-    pub interfaces_count: u16,
-    pub interfaces: Vec<Interface>,
-    pub fields_count: u16,
-    pub fields: Vec<Field>,
-    pub methods_count: u16,
-    pub methods: Vec<Method>,
-    pub attributes_count: u16,
-    pub attributes: Vec<Attribute>,
-}
-
-impl ClassFile {
-    pub fn pretty_print_constant(&self, n: usize) -> String {
-        match self.constant_pool[n - 1] {
-            ConstantPoolEntry::Utf8(ref s) => format!("[{}] Utf8 {}", n, s),
-            ConstantPoolEntry::Integer(i) => format!("[{}] Integer {}", n, i),
-            ConstantPoolEntry::Float(f) => format!("[{}] Float {}", n, f),
-            ConstantPoolEntry::Long(l) => format!("[{}] Long {}", n, l),
-            ConstantPoolEntry::Double(d) => format!("[{}] Double {}", n, d),
-            ConstantPoolEntry::Class(i) => {
-                let s = self.pretty_print_constant(i as usize);
-                format!("[{}] Class {}", n, s)
-            }
-            ConstantPoolEntry::String(i) => {
-                let s = self.pretty_print_constant(i as usize);
-                format!("[{}] String {}", n, s)
-            }
-            ConstantPoolEntry::FieldRef(class_index, name_and_type_index) => {
-                let class_name = self.pretty_print_constant(class_index as usize);
-                let name_and_type = self.pretty_print_constant(name_and_type_index as usize);
-                format!(
-                    "[{}] FieldRef {} | {} (field ref)",
-                    n, class_name, name_and_type
-                )
-            }
-            ConstantPoolEntry::MethodRef(class_index, name_and_type_index) => {
-                let class_name = self.pretty_print_constant(class_index as usize);
-                let name_and_type = self.pretty_print_constant(name_and_type_index as usize);
-                format!("[{}] MethodRef {} | {}", n, class_name, name_and_type)
-            }
-            ConstantPoolEntry::InterfaceMethodRef(class_index, name_and_type_index) => {
-                let class_name = self.pretty_print_constant(class_index as usize);
-                let name_and_type = self.pretty_print_constant(name_and_type_index as usize);
-                format!(
-                    "[{}] InterfaceMethodRef {} | {}",
-                    n, class_name, name_and_type
-                )
-            }
-            ConstantPoolEntry::NameAndType(name_index, descriptor_index) => {
-                let name = self.pretty_print_constant(name_index as usize);
-                let descriptor = self.pretty_print_constant(descriptor_index as usize);
-                format!("[{}] NameAndType {} | {}", n, name, descriptor)
-            }
-            ConstantPoolEntry::MethodHandle(reference_kind, reference_index) => {
-                let reference = self.pretty_print_constant(reference_index as usize);
-                format!("[{}] MethodHandle {}", n, reference)
-            }
-            ConstantPoolEntry::MethodType(descriptor_index) => {
-                let descriptor = self.pretty_print_constant(descriptor_index as usize);
-                format!("[{}] MethodType {}", n, descriptor)
-            }
-            ConstantPoolEntry::InvokeDynamic(bootstrap_method_attr_index, name_and_type_index) => {
-                let bootstrap_method_attr =
-                    self.pretty_print_constant(bootstrap_method_attr_index as usize);
-                let name_and_type = self.pretty_print_constant(name_and_type_index as usize);
-                format!("[{}] InvokeDynamic {}", n, name_and_type)
-            }
-        }
-    }
-
-    pub fn pretty_print(&self) -> String {
-        let mut constant_pool_pretty_vec = Vec::new();
-        for i in 1..self.constant_pool_count as usize {
-            constant_pool_pretty_vec.push(self.pretty_print_constant(i));
-        }
-
-        format!(
-            "{:X} v{}.{} | Class: {} | Access flags: {:?}  | Superclass: {}\n\
-            Constant Pool ({} entries): \n  {}\n\
-            Interfaces ({} entries): {:?}\n\
-            Fields ({} entries): {:?}\n\
-            Methods ({} entries): {:?}\n\
-            Attributes ({} entries): {:?}",
-            self.magic,
-            self.major_version,
-            self.minor_version,
-            self.pretty_print_constant(self.this_class as usize),
-            self.access_flags,
-            self.pretty_print_constant(self.super_class as usize),
-            self.constant_pool_count,
-            constant_pool_pretty_vec.join("\n  "),
-            self.interfaces_count,
-            self.interfaces,
-            self.fields_count,
-            self.fields,
-            self.methods_count,
-            self.methods,
-            self.attributes_count,
-            self.attributes
-        )
-    }
-}
-
-impl fmt::Display for ClassFile {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.pretty_print().fmt(f)
-    }
-}
-
 #[derive(Debug, Clone)]
 pub enum ConstantPoolEntry {
     Utf8(String),
@@ -199,23 +79,12 @@ pub struct Field {
 }
 
 #[derive(Debug)]
-pub struct Method {
+pub struct UnparsedMethod {
     pub access_flags: u16,
     pub name_index: u16,
     pub descriptor_index: u16,
     pub attributes_count: u16,
     pub attributes: Vec<Attribute>,
-}
-
-impl Method {
-    pub fn get_code_attribute(&self) -> Vec<u8> {
-        for attr in &self.attributes {
-            if let Attribute::Code(code_attr) = attr {
-                return code_attr.code.clone();
-            }
-        }
-        panic!("No code attribute found")
-    }
 }
 
 /// Attributes are used to store additional information about a class.
