@@ -143,7 +143,11 @@ impl JVM {
             Instruction::Nop => {}
             Instruction::AConstNull => curr_sf.stack.push(Primitive::Null),
             Instruction::Const(value) => curr_sf.stack.push(value.clone()),
-            // Instruction::LoadConst(index) => {}
+            Instruction::LoadConst(index) => {
+                curr_sf.stack.push(
+                    self.class_area[&curr_sf.class_name].constant_pool[index].get_primitive(),
+                );
+            }
             // TODO: Check that the stored or loaded type matches the expected type
             Instruction::Load(index, _type_to_load) => {
                 curr_sf.stack.push(curr_sf.locals[index].clone())
@@ -257,15 +261,20 @@ impl JVM {
             }
             Instruction::InvokeSpecial(index) => {}
             Instruction::InvokeStatic(index) => {
-                let (class_name, method_name, method_descriptor) = ConstantPoolEntry::method_ref_parser(
-                    index, &self.class_area[&curr_sf.class_name].constant_pool[..],
-                );
+                let (class_name, method_name, method_descriptor) =
+                    ConstantPoolEntry::method_ref_parser(
+                        index,
+                        &self.class_area[&curr_sf.class_name].constant_pool[..],
+                    );
 
-                let method = self.class_area[&class_name].methods[&format!("{}{}", method_name, method_descriptor)].clone();
+                let method = self.class_area[&class_name].methods
+                    [&format!("{}{}", method_name, method_descriptor)]
+                    .clone();
 
                 let mut method_parameters: Vec<Primitive> = Vec::new();
 
-                let param_string_len = method_descriptor.split(')').collect::<Vec<&str>>()[0].len() - 1;
+                let param_string_len =
+                    method_descriptor.split(')').collect::<Vec<&str>>()[0].len() - 1;
 
                 // TODO: Check that the parameters passed to the method are the correct types
                 for _i in 0..param_string_len {

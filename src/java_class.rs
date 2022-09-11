@@ -1,4 +1,6 @@
 //! This module contains the data structures used to represent java classes.
+use crate::Primitive;
+
 #[derive(Debug, Clone)]
 pub enum ConstantPoolEntry {
     Utf8(String),
@@ -48,10 +50,14 @@ impl ConstantPoolEntry {
         }
     }
 
-    pub fn method_ref_parser(index: usize, constant_pool: &[ConstantPoolEntry]) -> (String, String, String) {
+    pub fn method_ref_parser(
+        index: usize,
+        constant_pool: &[ConstantPoolEntry],
+    ) -> (String, String, String) {
         match &constant_pool[index - 1] {
             ConstantPoolEntry::MethodRef(class_index, name_and_type_index) => {
-                let class_name = ConstantPoolEntry::class_parser(*class_index as usize, constant_pool);
+                let class_name =
+                    ConstantPoolEntry::class_parser(*class_index as usize, constant_pool);
 
                 let (method_name, method_type) = ConstantPoolEntry::name_and_type_parser(
                     *name_and_type_index as usize,
@@ -61,6 +67,20 @@ impl ConstantPoolEntry {
                 (class_name, method_name, method_type)
             }
             _ => panic!("Invalid constant pool entry"),
+        }
+    }
+
+    pub fn get_primitive(&self) -> Primitive {
+        match self {
+            ConstantPoolEntry::Integer(i) => Primitive::Int(*i),
+            ConstantPoolEntry::Float(f) => Primitive::Float(*f),
+            ConstantPoolEntry::Long(l) => Primitive::Long(*l),
+            ConstantPoolEntry::Double(d) => Primitive::Double(*d),
+            ConstantPoolEntry::Class(r) => Primitive::Reference(*r as usize),
+            ConstantPoolEntry::String(r) => Primitive::Reference(*r as usize), // TODO: this may be wrong
+            ConstantPoolEntry::MethodHandle(_, r) => Primitive::Reference(*r as usize),
+            ConstantPoolEntry::MethodType(r) => Primitive::Reference(*r as usize),
+            _ => panic!("Unable to convert constant pool entry to loadable primitive"),
         }
     }
 }
