@@ -66,8 +66,6 @@ pub enum Instruction {
     MultiANewArray(usize, usize),
     IfNull(usize),
     IfNonNull(usize),
-    GotoW(usize),
-    JsrW(usize),
     Breakpoint,
 }
 

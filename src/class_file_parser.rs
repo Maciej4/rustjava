@@ -502,8 +502,8 @@ pub fn bytes_to_bytecode(code: Vec<u8>) -> Vec<Instruction> {
             197 => panic!("Unsupported instruction: {}", 197),
             198 => Instruction::IfNull(u2(&code, &mut pc) as usize),
             199 => Instruction::IfNonNull(u2(&code, &mut pc) as usize),
-            200 => Instruction::GotoW(u4(&code, &mut pc) as usize),
-            201 => Instruction::JsrW(u4(&code, &mut pc) as usize),
+            200 => Instruction::Goto(u4(&code, &mut pc) as usize),
+            201 => Instruction::Jsr(u4(&code, &mut pc) as usize),
             202 => Instruction::Breakpoint,
             _ => panic!("unsupported instruction"),
         });

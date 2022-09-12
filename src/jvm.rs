@@ -137,7 +137,6 @@ impl JVM {
         let current_stack_frame_index = self.stack_frames.len() - 1;
         let curr_sf = &mut self.stack_frames[current_stack_frame_index];
         let instruction = curr_sf.method.instructions[curr_sf.pc].clone();
-        let mut no_step = false;
 
         match instruction {
             Instruction::Nop => {}
@@ -168,13 +167,64 @@ impl JVM {
                     curr_sf.stack.pop();
                 }
             }
-            Instruction::Dup => {} // TODO: Implement dup instructions
-            Instruction::DupX1 => {}
-            Instruction::DupX2 => {}
-            Instruction::Dup2 => {}
-            Instruction::Dup2X1 => {}
-            Instruction::Dup2X2 => {}
-            Instruction::Swap => {}
+            // TODO: Dub instructions interact with wide types differently
+            Instruction::Dup => {
+                let top = curr_sf.stack.pop().expect("empty stack");
+                curr_sf.stack.push(top.clone());
+                curr_sf.stack.push(top);
+            }
+            Instruction::DupX1 => {
+                let top = curr_sf.stack.pop().expect("empty stack");
+                let second = curr_sf.stack.pop().expect("empty stack");
+                curr_sf.stack.push(top.clone());
+                curr_sf.stack.push(second);
+                curr_sf.stack.push(top);
+            }
+            Instruction::DupX2 => {
+                let top = curr_sf.stack.pop().expect("empty stack");
+                let second = curr_sf.stack.pop().expect("empty stack");
+                let third = curr_sf.stack.pop().expect("empty stack");
+                curr_sf.stack.push(top.clone());
+                curr_sf.stack.push(third);
+                curr_sf.stack.push(second);
+                curr_sf.stack.push(top);
+            }
+            Instruction::Dup2 => {
+                let top = curr_sf.stack.pop().expect("empty stack");
+                let second = curr_sf.stack.pop().expect("empty stack");
+                curr_sf.stack.push(second.clone());
+                curr_sf.stack.push(top.clone());
+                curr_sf.stack.push(second);
+                curr_sf.stack.push(top);
+            }
+            Instruction::Dup2X1 => {
+                let top = curr_sf.stack.pop().expect("empty stack");
+                let second = curr_sf.stack.pop().expect("empty stack");
+                let third = curr_sf.stack.pop().expect("empty stack");
+                curr_sf.stack.push(second.clone());
+                curr_sf.stack.push(top.clone());
+                curr_sf.stack.push(third);
+                curr_sf.stack.push(second);
+                curr_sf.stack.push(top);
+            }
+            Instruction::Dup2X2 => {
+                let top = curr_sf.stack.pop().expect("empty stack");
+                let second = curr_sf.stack.pop().expect("empty stack");
+                let third = curr_sf.stack.pop().expect("empty stack");
+                let fourth = curr_sf.stack.pop().expect("empty stack");
+                curr_sf.stack.push(second.clone());
+                curr_sf.stack.push(top.clone());
+                curr_sf.stack.push(fourth);
+                curr_sf.stack.push(third);
+                curr_sf.stack.push(second);
+                curr_sf.stack.push(top);
+            }
+            Instruction::Swap => {
+                let top = curr_sf.stack.pop().expect("empty stack");
+                let second = curr_sf.stack.pop().expect("empty stack");
+                curr_sf.stack.push(top);
+                curr_sf.stack.push(second);
+            }
             Instruction::Add(operand_type) => curr_sf.math(operand_type, Operator::Add),
             Instruction::Sub(operand_type) => curr_sf.math(operand_type, Operator::Sub),
             Instruction::Mul(operand_type) => curr_sf.math(operand_type, Operator::Mul),
@@ -210,30 +260,30 @@ impl JVM {
             Instruction::If(branch_offset, comparator) => {
                 if curr_sf.comp(comparator) {
                     curr_sf.pc += branch_offset;
-                    no_step = true;
+                    return;
                 }
             }
             Instruction::IfICmp(branch_offset, comparator) => {
                 if curr_sf.i_comp(comparator) {
                     curr_sf.pc += branch_offset;
-                    no_step = true;
+                    return;
                 }
             }
             Instruction::Goto(branch_offset) => {
                 curr_sf.pc += branch_offset;
-                no_step = true;
+                return;
             }
             Instruction::Jsr(branch_offset) => {
                 curr_sf.stack.push(Primitive::Reference(curr_sf.pc + 1));
                 curr_sf.pc += branch_offset;
-                no_step = true;
+                return;
             }
             Instruction::Ret(index) => {
                 curr_sf.pc = match curr_sf.locals[index] {
                     Primitive::Reference(x) => x,
                     _ => panic!("invalid return address"),
                 };
-                no_step = true;
+                return;
             }
             // Instruction::TableSwitch(usize, usize, usize) => {}, // TODO: Implement table switch and lookup switch
             // Instruction::LookupSwitch(usize, usize, usize) => {},
@@ -308,16 +358,24 @@ impl JVM {
             Instruction::MonitorExit => {}
             Instruction::Wide(usize) => {}
             Instruction::MultiANewArray(index, dimensions) => {}
-            Instruction::IfNull(branch_offset) => {}
-            Instruction::IfNonNull(branch_offset) => {}
-            Instruction::GotoW(branch_offset) => {}
-            Instruction::JsrW(branch_offset) => {}
+            Instruction::IfNull(branch_offset) => {
+                if let Primitive::Null = curr_sf.stack.pop().expect("empty stack") {
+                    curr_sf.pc += branch_offset;
+                    return;
+                }
+            }
+            Instruction::IfNonNull(branch_offset) => {
+                if let Primitive::Null = curr_sf.stack.pop().expect("empty stack") {
+                    // Do nothing
+                } else {
+                    curr_sf.pc += branch_offset;
+                    return;
+                }
+            }
             Instruction::Breakpoint => {}
             _ => panic!("unsupported instruction"),
         }
 
-        if !no_step {
-            curr_sf.pc += 1;
-        }
+        curr_sf.pc += 1;
     }
 }
