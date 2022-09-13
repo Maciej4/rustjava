@@ -8,7 +8,7 @@ mod reader;
 
 fn main() {
     let classes = vec![class_file_parser::parse_file_to_class(
-        ".\\src\\java_tests\\Add.class",
+        ".\\src\\java_tests\\Array.class",
     )];
 
     println!("{:?}", classes);
