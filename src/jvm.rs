@@ -11,6 +11,7 @@ pub struct Method {
 pub struct StackFrame {
     pub pc: usize,
     pub locals: Vec<Primitive>,
+    pub arrays: HashMap<usize, Vec<Primitive>>,
     pub stack: Vec<Primitive>,
     pub method: Method,
     pub class_name: String,
@@ -82,6 +83,24 @@ impl StackFrame {
             _ => panic!("comparing non-int types"),
         }
     }
+
+    pub fn sp(&mut self) -> Primitive {
+        self.stack.pop().expect("empty stack")
+    }
+
+    pub fn sp_int(&mut self) -> i32 {
+        match self.stack.pop().expect("empty stack") {
+            Primitive::Int(x) => x,
+            _ => panic!("sp_int on non-int type"),
+        }
+    }
+
+    pub fn sp_ref(&mut self) -> usize {
+        match self.stack.pop().expect("empty stack") {
+            Primitive::Reference(x) => x,
+            _ => panic!("sp_ref on non-reference type"),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -123,6 +142,7 @@ impl JVM {
         self.stack_frames.push(StackFrame {
             pc: 0,
             locals: Vec::new(),
+            arrays: HashMap::new(),
             stack: Vec::new(),
             method,
             class_name: "Main".to_string(),
@@ -138,69 +158,92 @@ impl JVM {
         let curr_sf = &mut self.stack_frames[current_stack_frame_index];
         let instruction = curr_sf.method.instructions[curr_sf.pc].clone();
 
+        // println!("stack: {:?}", curr_sf.stack);
+        // println!("arrays: {:?}", curr_sf.arrays);
+        // println!("{} | {:?}\n", curr_sf.pc, instruction);
+
         match instruction {
             Instruction::Nop => {}
             Instruction::AConstNull => curr_sf.stack.push(Primitive::Null),
             Instruction::Const(value) => curr_sf.stack.push(value.clone()),
             Instruction::LoadConst(index) => {
                 curr_sf.stack.push(
-                    self.class_area[&curr_sf.class_name].constant_pool[index].get_primitive(),
+                    self.class_area[&curr_sf.class_name].constant_pool[index - 1].get_primitive(),
                 );
             }
             // TODO: Check that the stored or loaded type matches the expected type
             Instruction::Load(index, _type_to_load) => {
                 curr_sf.stack.push(curr_sf.locals[index].clone())
             }
-            // Instruction::ALoad(stored_type) => {}
+            Instruction::ALoad(_stored_type) => {
+                let index = curr_sf.sp_int();
+                let array_ref = curr_sf.sp_ref();
+
+                let array = curr_sf.arrays.get(&array_ref).expect("array not found");
+                let value = array[index as usize].clone();
+                curr_sf.stack.push(value);
+            }
             Instruction::Store(index, _type_to_store) => {
                 if curr_sf.locals.len() <= index {
                     curr_sf.locals.resize(index + 1, Primitive::Null)
                 };
-                curr_sf.locals[index] = curr_sf.stack.pop().expect("empty stack")
+                curr_sf.locals[index] = curr_sf.sp()
             }
-            // Instruction::AStore(stored_type) => {}
+            Instruction::AStore(_stored_type) => {
+                let value = curr_sf.sp();
+                let index = curr_sf.sp_int();
+                let array_ref = curr_sf.sp_ref();
+
+                let array = curr_sf.arrays.get_mut(&array_ref).expect("array not found");
+
+                if array.len() <= index as usize {
+                    array.resize(index as usize + 1, Primitive::Null)
+                };
+
+                array[index as usize] = value;
+            }
             Instruction::Pop => {
                 curr_sf.stack.pop();
             }
             Instruction::Pop2 => {
-                if !curr_sf.stack.pop().expect("empty stack").is_wide() {
+                if !curr_sf.sp().is_wide() {
                     curr_sf.stack.pop();
                 }
             }
             // TODO: Dub instructions interact with wide types differently
             Instruction::Dup => {
-                let top = curr_sf.stack.pop().expect("empty stack");
+                let top = curr_sf.sp();
                 curr_sf.stack.push(top.clone());
                 curr_sf.stack.push(top);
             }
             Instruction::DupX1 => {
-                let top = curr_sf.stack.pop().expect("empty stack");
-                let second = curr_sf.stack.pop().expect("empty stack");
+                let top = curr_sf.sp();
+                let second = curr_sf.sp();
                 curr_sf.stack.push(top.clone());
                 curr_sf.stack.push(second);
                 curr_sf.stack.push(top);
             }
             Instruction::DupX2 => {
-                let top = curr_sf.stack.pop().expect("empty stack");
-                let second = curr_sf.stack.pop().expect("empty stack");
-                let third = curr_sf.stack.pop().expect("empty stack");
+                let top = curr_sf.sp();
+                let second = curr_sf.sp();
+                let third = curr_sf.sp();
                 curr_sf.stack.push(top.clone());
                 curr_sf.stack.push(third);
                 curr_sf.stack.push(second);
                 curr_sf.stack.push(top);
             }
             Instruction::Dup2 => {
-                let top = curr_sf.stack.pop().expect("empty stack");
-                let second = curr_sf.stack.pop().expect("empty stack");
+                let top = curr_sf.sp();
+                let second = curr_sf.sp();
                 curr_sf.stack.push(second.clone());
                 curr_sf.stack.push(top.clone());
                 curr_sf.stack.push(second);
                 curr_sf.stack.push(top);
             }
             Instruction::Dup2X1 => {
-                let top = curr_sf.stack.pop().expect("empty stack");
-                let second = curr_sf.stack.pop().expect("empty stack");
-                let third = curr_sf.stack.pop().expect("empty stack");
+                let top = curr_sf.sp();
+                let second = curr_sf.sp();
+                let third = curr_sf.sp();
                 curr_sf.stack.push(second.clone());
                 curr_sf.stack.push(top.clone());
                 curr_sf.stack.push(third);
@@ -208,10 +251,10 @@ impl JVM {
                 curr_sf.stack.push(top);
             }
             Instruction::Dup2X2 => {
-                let top = curr_sf.stack.pop().expect("empty stack");
-                let second = curr_sf.stack.pop().expect("empty stack");
-                let third = curr_sf.stack.pop().expect("empty stack");
-                let fourth = curr_sf.stack.pop().expect("empty stack");
+                let top = curr_sf.sp();
+                let second = curr_sf.sp();
+                let third = curr_sf.sp();
+                let fourth = curr_sf.sp();
                 curr_sf.stack.push(second.clone());
                 curr_sf.stack.push(top.clone());
                 curr_sf.stack.push(fourth);
@@ -220,8 +263,8 @@ impl JVM {
                 curr_sf.stack.push(top);
             }
             Instruction::Swap => {
-                let top = curr_sf.stack.pop().expect("empty stack");
-                let second = curr_sf.stack.pop().expect("empty stack");
+                let top = curr_sf.sp();
+                let second = curr_sf.sp();
                 curr_sf.stack.push(top);
                 curr_sf.stack.push(second);
             }
@@ -246,12 +289,11 @@ impl JVM {
             }
             Instruction::Convert(start_type, end_type) => {
                 let converted = Primitive::eval(
-                    curr_sf.stack.pop().expect("empty stack"),
+                    curr_sf.sp(),
                     Operator::Convert(start_type.clone(), end_type.clone()),
                 );
                 curr_sf.stack.push(converted);
             }
-            // TODO: Implement branching
             Instruction::LCmp => {}
             Instruction::FCmpL => {}
             Instruction::FCmpG => {}
@@ -290,7 +332,7 @@ impl JVM {
             Instruction::Return(_return_type) => {
                 // TODO: Check that the return type matches the method's return type
 
-                let return_value = curr_sf.stack.pop().expect("empty stack");
+                let return_value = curr_sf.sp();
                 let stack_frames_length = self.stack_frames.len() - 1;
                 self.stack_frames.pop();
 
@@ -328,7 +370,7 @@ impl JVM {
 
                 // TODO: Check that the parameters passed to the method are the correct types
                 for _i in 0..param_string_len {
-                    method_parameters.push(curr_sf.stack.pop().expect("empty stack"));
+                    method_parameters.push(curr_sf.sp());
                 }
 
                 curr_sf.pc += 1;
@@ -336,6 +378,7 @@ impl JVM {
                 let frame = StackFrame {
                     pc: 0,
                     locals: method_parameters,
+                    arrays: HashMap::new(),
                     stack: vec![],
                     method,
                     class_name: curr_sf.class_name.clone(),
@@ -348,7 +391,16 @@ impl JVM {
             Instruction::InvokeInterface(index) => {}
             Instruction::InvokeDynamic(index) => {}
             Instruction::New(index) => {}
-            Instruction::NewArray(a_type) => {}
+            Instruction::NewArray(_a_type) => {
+                // TODO: Check that the type is a valid array type
+                let count = curr_sf.sp_int();
+
+                let new_array_ref = curr_sf.arrays.len();
+                curr_sf
+                    .arrays
+                    .insert(new_array_ref, Vec::with_capacity(count as usize));
+                curr_sf.stack.push(Primitive::Reference(new_array_ref));
+            }
             Instruction::ANewArray(index) => {}
             Instruction::ArrayLength => {}
             Instruction::AThrow => {}
@@ -359,13 +411,13 @@ impl JVM {
             Instruction::Wide(usize) => {}
             Instruction::MultiANewArray(index, dimensions) => {}
             Instruction::IfNull(branch_offset) => {
-                if let Primitive::Null = curr_sf.stack.pop().expect("empty stack") {
+                if let Primitive::Null = curr_sf.sp() {
                     curr_sf.pc += branch_offset;
                     return;
                 }
             }
             Instruction::IfNonNull(branch_offset) => {
-                if let Primitive::Null = curr_sf.stack.pop().expect("empty stack") {
+                if let Primitive::Null = curr_sf.sp() {
                     // Do nothing
                 } else {
                     curr_sf.pc += branch_offset;

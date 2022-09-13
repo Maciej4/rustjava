@@ -14,10 +14,10 @@ fn parse_constant_pool(r: &mut Reader, constant_pool_count: u16) -> Vec<Constant
                 let length = r.g2() as usize;
                 ConstantPoolEntry::Utf8(String::from_utf8(r.g(length)).unwrap())
             }
-            3 => ConstantPoolEntry::Integer(r.g4() as i32),
-            4 => ConstantPoolEntry::Float(r.g4() as f32),
-            5 => ConstantPoolEntry::Long(r.g8() as i64),
-            6 => ConstantPoolEntry::Double(r.g8() as f64),
+            3 => ConstantPoolEntry::Integer(i32::from_be_bytes(r.g4_array())),
+            4 => ConstantPoolEntry::Float(f32::from_be_bytes(r.g4_array())),
+            5 => ConstantPoolEntry::Long(i64::from_be_bytes(r.g8_array())),
+            6 => ConstantPoolEntry::Double(f64::from_be_bytes(r.g8_array())),
             7 => ConstantPoolEntry::Class(r.g2()),
             8 => ConstantPoolEntry::String(r.g2()),
             9 => ConstantPoolEntry::FieldRef(r.g2(), r.g2()),

@@ -43,22 +43,24 @@ impl Reader {
             | (self.g1() as u32)
     }
 
-    /// Reads and advances eight bytes.
-    pub fn g8(&mut self) -> u64 {
-        (self.g1() as u64) << 56
-            | (self.g1() as u64) << 48
-            | (self.g1() as u64) << 40
-            | (self.g1() as u64) << 32
-            | (self.g1() as u64) << 24
-            | (self.g1() as u64) << 16
-            | (self.g1() as u64) << 8
-            | (self.g1() as u64)
-    }
-
     /// Reads and advances a passed number of bytes.
     pub fn g(&mut self, size: usize) -> Vec<u8> {
         self.index += size;
         self.bytes[self.index - size..self.index].to_vec()
+    }
+
+    /// Read and advance 4 bytes and return a four length array of u8.
+    pub fn g4_array(&mut self) -> [u8; 4] {
+        let mut array = [0; 4];
+        array.copy_from_slice(&self.g(4));
+        array
+    }
+
+    /// Read and advance 8 bytes and return an eight length array of u8.
+    pub fn g8_array(&mut self) -> [u8; 8] {
+        let mut array = [0; 8];
+        array.copy_from_slice(&self.g(8));
+        array
     }
 
     /// Read the current index.
