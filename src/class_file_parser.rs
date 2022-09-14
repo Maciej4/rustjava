@@ -259,13 +259,12 @@ fn parse_attributes(
             _ => panic!("{} is an unsupported attribute type", attribute_str_name),
         });
 
-        if r.pos() != attribute_start_position + attribute_length as usize {
-            println!(
-                "{:?} was not parsed completely",
-                ct[attribute_name_index as usize]
-            );
-            // panic!("attribute was not parsed completely");
-        }
+        // if r.pos() != attribute_start_position + attribute_length as usize {
+        //     println!(
+        //         "{:?} was not parsed completely",
+        //         ct[attribute_name_index as usize]
+        //     );
+        // }
 
         r.set_pos(attribute_start_position + attribute_length as usize);
     }
@@ -519,7 +518,7 @@ pub fn bytes_to_bytecode(code: Vec<u8>) -> Vec<Instruction> {
     instructions
 }
 
-pub fn parse_file_to_class(filename: &str) -> Class {
+pub fn parse_file_to_class(filename: String) -> Class {
     let mut r = Reader::new(filename);
 
     let magic = r.g4();

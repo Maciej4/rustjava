@@ -11,8 +11,8 @@ pub struct Reader {
 
 impl Reader {
     /// Make a new reader for a passed file.
-    pub fn new(filename: &str) -> Reader {
-        let filename_string = filename.to_string();
+    pub fn new(filename: String) -> Reader {
+        let filename_string = filename;
         let mut f = File::open(&filename_string).expect("no file found");
         let metadata = fs::metadata(&filename_string).expect("unable to read metadata");
         let mut buffer = vec![0; metadata.len() as usize];
