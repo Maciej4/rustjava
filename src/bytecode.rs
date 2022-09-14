@@ -100,8 +100,8 @@ pub enum Operator {
 pub enum PrimitiveType {
     Null,
     Byte,
-    Char,
     Short,
+    Char,
     Int,
     Long,
     Float,
@@ -114,9 +114,9 @@ pub enum Primitive {
     Null,
     Byte(i8),
     Short(i16),
+    Char(u16),
     Int(i32),
     Long(i64),
-    Char(u16),
     Float(f32),
     Double(f64),
     Reference(usize),
@@ -239,7 +239,74 @@ impl Primitive {
         }
     }
 
+    pub fn compare_to_zero(value: Primitive, comparator: Comparison) -> bool {
+        match value {
+            Primitive::Int(x) => match comparator {
+                Comparison::Equal => x == 0,
+                Comparison::NotEqual => x != 0,
+                Comparison::LessThan => x < 0,
+                Comparison::GreaterThanOrEqual => x >= 0,
+                Comparison::GreaterThan => x > 0,
+                Comparison::LessThanOrEqual => x <= 0,
+            },
+            Primitive::Long(x) => match comparator {
+                Comparison::Equal => x == 0,
+                Comparison::NotEqual => x != 0,
+                Comparison::LessThan => x < 0,
+                Comparison::GreaterThanOrEqual => x >= 0,
+                Comparison::GreaterThan => x > 0,
+                Comparison::LessThanOrEqual => x <= 0,
+            },
+            Primitive::Float(x) => match comparator {
+                Comparison::Equal => x == 0.0,
+                Comparison::NotEqual => x != 0.0,
+                Comparison::LessThan => x < 0.0,
+                Comparison::GreaterThanOrEqual => x >= 0.0,
+                Comparison::GreaterThan => x > 0.0,
+                Comparison::LessThanOrEqual => x <= 0.0,
+            },
+            Primitive::Double(x) => match comparator {
+                Comparison::Equal => x == 0.0,
+                Comparison::NotEqual => x != 0.0,
+                Comparison::LessThan => x < 0.0,
+                Comparison::GreaterThanOrEqual => x >= 0.0,
+                Comparison::GreaterThan => x > 0.0,
+                Comparison::LessThanOrEqual => x <= 0.0,
+            },
+            _ => panic!("unsupported type for comparison"),
+        }
+    }
+
+    pub fn integer_compare(value1: Primitive, value2: Primitive, comparator: Comparison) -> bool {
+        match (value1, value2) {
+            (Primitive::Int(x), Primitive::Int(y)) => match comparator {
+                Comparison::Equal => x == y,
+                Comparison::NotEqual => x != y,
+                Comparison::LessThan => x < y,
+                Comparison::GreaterThanOrEqual => x >= y,
+                Comparison::GreaterThan => x > y,
+                Comparison::LessThanOrEqual => x <= y,
+            },
+            _ => panic!("comparing non-int types"),
+        }
+    }
+
     pub fn is_wide(&self) -> bool {
         matches!(self, Primitive::Long(_) | Primitive::Double(_))
+    }
+
+    pub fn is_type(&self, t: PrimitiveType) -> bool {
+        matches!(
+            (self, t),
+            (Primitive::Null, PrimitiveType::Null)
+                | (Primitive::Byte(_), PrimitiveType::Byte)
+                | (Primitive::Short(_), PrimitiveType::Short)
+                | (Primitive::Char(_), PrimitiveType::Char)
+                | (Primitive::Int(_), PrimitiveType::Int)
+                | (Primitive::Long(_), PrimitiveType::Long)
+                | (Primitive::Float(_), PrimitiveType::Float)
+                | (Primitive::Double(_), PrimitiveType::Double)
+                | (Primitive::Reference(_), PrimitiveType::Reference)
+        )
     }
 }

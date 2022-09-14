@@ -18,85 +18,37 @@ pub struct StackFrame {
 }
 
 impl StackFrame {
-    pub fn math(&mut self, _op_type: PrimitiveType, o: Operator) {
-        let a = self.stack.pop().expect("empty stack");
-        let b = self.stack.pop().expect("empty stack");
+    pub fn math(&mut self, operand_type: PrimitiveType, o: Operator) {
+        let value2 = self.pop_primitive();
+        let value1 = self.pop_primitive();
 
-        // TODO: Check that a is the same type as op_type
-
-        self.stack.push(Primitive::eval2(b, a, o));
-    }
-
-    pub fn comp(&mut self, comparator: Comparison) -> bool {
-        let a = self.stack.pop().expect("empty stack");
-
-        match a {
-            Primitive::Int(x) => match comparator {
-                Comparison::Equal => x == 0,
-                Comparison::NotEqual => x != 0,
-                Comparison::LessThan => x < 0,
-                Comparison::GreaterThanOrEqual => x >= 0,
-                Comparison::GreaterThan => x > 0,
-                Comparison::LessThanOrEqual => x <= 0,
-            },
-            Primitive::Long(x) => match comparator {
-                Comparison::Equal => x == 0,
-                Comparison::NotEqual => x != 0,
-                Comparison::LessThan => x < 0,
-                Comparison::GreaterThanOrEqual => x >= 0,
-                Comparison::GreaterThan => x > 0,
-                Comparison::LessThanOrEqual => x <= 0,
-            },
-            Primitive::Float(x) => match comparator {
-                Comparison::Equal => x == 0.0,
-                Comparison::NotEqual => x != 0.0,
-                Comparison::LessThan => x < 0.0,
-                Comparison::GreaterThanOrEqual => x >= 0.0,
-                Comparison::GreaterThan => x > 0.0,
-                Comparison::LessThanOrEqual => x <= 0.0,
-            },
-            Primitive::Double(x) => match comparator {
-                Comparison::Equal => x == 0.0,
-                Comparison::NotEqual => x != 0.0,
-                Comparison::LessThan => x < 0.0,
-                Comparison::GreaterThanOrEqual => x >= 0.0,
-                Comparison::GreaterThan => x > 0.0,
-                Comparison::LessThanOrEqual => x <= 0.0,
-            },
-            _ => panic!("unsupported type for comparison"),
+        if !value1.is_type(operand_type) {
+            panic!("mismatched operand type for stack frame math function");
         }
+
+        self.stack.push(Primitive::eval2(value1, value2, o));
     }
 
-    pub fn i_comp(&mut self, comparator: Comparison) -> bool {
-        let a = self.stack.pop().expect("empty stack");
-        let b = self.stack.pop().expect("empty stack");
-
-        match (b, a) {
-            (Primitive::Int(x), Primitive::Int(y)) => match comparator {
-                Comparison::Equal => x == y,
-                Comparison::NotEqual => x != y,
-                Comparison::LessThan => x < y,
-                Comparison::GreaterThanOrEqual => x >= y,
-                Comparison::GreaterThan => x > y,
-                Comparison::LessThanOrEqual => x <= y,
-            },
-            _ => panic!("comparing non-int types"),
-        }
-    }
-
-    pub fn sp(&mut self) -> Primitive {
+    pub fn pop_primitive(&mut self) -> Primitive {
         self.stack.pop().expect("empty stack")
     }
 
-    pub fn sp_int(&mut self) -> i32 {
-        match self.stack.pop().expect("empty stack") {
+    pub fn pop_int(&mut self) -> i32 {
+        match self.pop_primitive() {
             Primitive::Int(x) => x,
             _ => panic!("sp_int on non-int type"),
         }
     }
 
-    pub fn sp_ref(&mut self) -> usize {
-        match self.stack.pop().expect("empty stack") {
+    pub fn pop_long(&mut self) -> i64 {
+        match self.pop_primitive() {
+            Primitive::Long(x) => x,
+            _ => panic!("sp_long on non-long type"),
+        }
+    }
+
+    pub fn pop_ref(&mut self) -> usize {
+        match self.pop_primitive() {
             Primitive::Reference(x) => x,
             _ => panic!("sp_ref on non-reference type"),
         }
@@ -176,8 +128,8 @@ impl JVM {
                 curr_sf.stack.push(curr_sf.locals[index].clone())
             }
             Instruction::ALoad(_stored_type) => {
-                let index = curr_sf.sp_int();
-                let array_ref = curr_sf.sp_ref();
+                let index = curr_sf.pop_int();
+                let array_ref = curr_sf.pop_ref();
 
                 let array = curr_sf.arrays.get(&array_ref).expect("array not found");
                 let value = array[index as usize].clone();
@@ -187,12 +139,12 @@ impl JVM {
                 if curr_sf.locals.len() <= index {
                     curr_sf.locals.resize(index + 1, Primitive::Null)
                 };
-                curr_sf.locals[index] = curr_sf.sp()
+                curr_sf.locals[index] = curr_sf.pop_primitive()
             }
             Instruction::AStore(_stored_type) => {
-                let value = curr_sf.sp();
-                let index = curr_sf.sp_int();
-                let array_ref = curr_sf.sp_ref();
+                let value = curr_sf.pop_primitive();
+                let index = curr_sf.pop_int();
+                let array_ref = curr_sf.pop_ref();
 
                 let array = curr_sf.arrays.get_mut(&array_ref).expect("array not found");
 
@@ -206,65 +158,66 @@ impl JVM {
                 curr_sf.stack.pop();
             }
             Instruction::Pop2 => {
-                if !curr_sf.sp().is_wide() {
+                if !curr_sf.pop_primitive().is_wide() {
                     curr_sf.stack.pop();
                 }
             }
-            // TODO: Dub instructions interact with wide types differently
+            // TODO: Dup instructions interact with wide types differently
             Instruction::Dup => {
-                let top = curr_sf.sp();
-                curr_sf.stack.push(top.clone());
-                curr_sf.stack.push(top);
+                let value = curr_sf.pop_primitive();
+                curr_sf.stack.push(value.clone());
+                curr_sf.stack.push(value);
             }
             Instruction::DupX1 => {
-                let top = curr_sf.sp();
-                let second = curr_sf.sp();
-                curr_sf.stack.push(top.clone());
-                curr_sf.stack.push(second);
-                curr_sf.stack.push(top);
+                let value2 = curr_sf.pop_primitive();
+                let value1 = curr_sf.pop_primitive();
+
+                curr_sf.stack.push(value2.clone());
+                curr_sf.stack.push(value1);
+                curr_sf.stack.push(value2);
             }
             Instruction::DupX2 => {
-                let top = curr_sf.sp();
-                let second = curr_sf.sp();
-                let third = curr_sf.sp();
-                curr_sf.stack.push(top.clone());
-                curr_sf.stack.push(third);
-                curr_sf.stack.push(second);
-                curr_sf.stack.push(top);
+                let value3 = curr_sf.pop_primitive();
+                let value2 = curr_sf.pop_primitive();
+                let value1 = curr_sf.pop_primitive();
+                curr_sf.stack.push(value3.clone());
+                curr_sf.stack.push(value1);
+                curr_sf.stack.push(value2);
+                curr_sf.stack.push(value3);
             }
             Instruction::Dup2 => {
-                let top = curr_sf.sp();
-                let second = curr_sf.sp();
-                curr_sf.stack.push(second.clone());
-                curr_sf.stack.push(top.clone());
-                curr_sf.stack.push(second);
-                curr_sf.stack.push(top);
+                let value2 = curr_sf.pop_primitive();
+                let value1 = curr_sf.pop_primitive();
+                curr_sf.stack.push(value1.clone());
+                curr_sf.stack.push(value2.clone());
+                curr_sf.stack.push(value1);
+                curr_sf.stack.push(value2);
             }
             Instruction::Dup2X1 => {
-                let top = curr_sf.sp();
-                let second = curr_sf.sp();
-                let third = curr_sf.sp();
-                curr_sf.stack.push(second.clone());
-                curr_sf.stack.push(top.clone());
-                curr_sf.stack.push(third);
-                curr_sf.stack.push(second);
-                curr_sf.stack.push(top);
+                let value3 = curr_sf.pop_primitive();
+                let value2 = curr_sf.pop_primitive();
+                let value1 = curr_sf.pop_primitive();
+                curr_sf.stack.push(value2.clone());
+                curr_sf.stack.push(value3.clone());
+                curr_sf.stack.push(value1);
+                curr_sf.stack.push(value2);
+                curr_sf.stack.push(value3);
             }
             Instruction::Dup2X2 => {
-                let top = curr_sf.sp();
-                let second = curr_sf.sp();
-                let third = curr_sf.sp();
-                let fourth = curr_sf.sp();
-                curr_sf.stack.push(second.clone());
-                curr_sf.stack.push(top.clone());
-                curr_sf.stack.push(fourth);
-                curr_sf.stack.push(third);
-                curr_sf.stack.push(second);
-                curr_sf.stack.push(top);
+                let value4 = curr_sf.pop_primitive();
+                let value3 = curr_sf.pop_primitive();
+                let value2 = curr_sf.pop_primitive();
+                let value1 = curr_sf.pop_primitive();
+                curr_sf.stack.push(value3.clone());
+                curr_sf.stack.push(value4.clone());
+                curr_sf.stack.push(value1);
+                curr_sf.stack.push(value2);
+                curr_sf.stack.push(value3);
+                curr_sf.stack.push(value4);
             }
             Instruction::Swap => {
-                let top = curr_sf.sp();
-                let second = curr_sf.sp();
+                let top = curr_sf.pop_primitive();
+                let second = curr_sf.pop_primitive();
                 curr_sf.stack.push(top);
                 curr_sf.stack.push(second);
             }
@@ -289,24 +242,38 @@ impl JVM {
             }
             Instruction::Convert(start_type, end_type) => {
                 let converted = Primitive::eval(
-                    curr_sf.sp(),
-                    Operator::Convert(start_type.clone(), end_type.clone()),
+                    curr_sf.pop_primitive(),
+                    Operator::Convert(start_type, end_type),
                 );
                 curr_sf.stack.push(converted);
             }
-            Instruction::LCmp => {}
+            Instruction::LCmp => {
+                let second = curr_sf.pop_long();
+                let first = curr_sf.pop_long();
+
+                let result = match first - second {
+                    0 => 0,
+                    x if x > 0 => 1,
+                    _ => -1,
+                };
+
+                curr_sf.stack.push(Primitive::Int(result));
+            }
             Instruction::FCmpL => {}
             Instruction::FCmpG => {}
             Instruction::DCmpL => {}
             Instruction::DCmpG => {}
             Instruction::If(branch_offset, comparator) => {
-                if curr_sf.comp(comparator) {
+                if Primitive::compare_to_zero(curr_sf.pop_primitive(), comparator) {
                     curr_sf.pc += branch_offset;
                     return;
                 }
             }
             Instruction::IfICmp(branch_offset, comparator) => {
-                if curr_sf.i_comp(comparator) {
+                let value2 = curr_sf.pop_primitive();
+                let value1 = curr_sf.pop_primitive();
+
+                if Primitive::integer_compare(value1, value2, comparator) {
                     curr_sf.pc += branch_offset;
                     return;
                 }
@@ -329,17 +296,24 @@ impl JVM {
             }
             // Instruction::TableSwitch(usize, usize, usize) => {}, // TODO: Implement table switch and lookup switch
             // Instruction::LookupSwitch(usize, usize, usize) => {},
-            Instruction::Return(_return_type) => {
-                // TODO: Check that the return type matches the method's return type
+            Instruction::Return(expected_return_type) => {
+                if matches!(expected_return_type, PrimitiveType::Null) {
+                    self.stack_frames.pop();
+                } else {
+                    let return_value = curr_sf.pop_primitive();
 
-                let return_value = curr_sf.sp();
-                let stack_frames_length = self.stack_frames.len() - 1;
-                self.stack_frames.pop();
+                    if !return_value.is_type(expected_return_type) {
+                        panic!("attempted to return an invalid type");
+                    }
 
-                if !self.stack_frames.is_empty() {
-                    self.stack_frames[stack_frames_length - 1]
-                        .stack
-                        .push(return_value);
+                    self.stack_frames.pop();
+                    let stack_frames_length = self.stack_frames.len();
+
+                    if !self.stack_frames.is_empty() {
+                        self.stack_frames[stack_frames_length - 1]
+                            .stack
+                            .push(return_value);
+                    }
                 }
 
                 return;
@@ -350,6 +324,8 @@ impl JVM {
             Instruction::PutField(index) => {}
             Instruction::InvokeVirtual(index) => {
                 println!("{:?}", curr_sf.stack);
+
+                curr_sf.stack = Vec::new();
             }
             Instruction::InvokeSpecial(index) => {}
             Instruction::InvokeStatic(index) => {
@@ -370,7 +346,7 @@ impl JVM {
 
                 // TODO: Check that the parameters passed to the method are the correct types
                 for _i in 0..param_string_len {
-                    method_parameters.push(curr_sf.sp());
+                    method_parameters.push(curr_sf.pop_primitive());
                 }
 
                 curr_sf.pc += 1;
@@ -393,7 +369,7 @@ impl JVM {
             Instruction::New(index) => {}
             Instruction::NewArray(_a_type) => {
                 // TODO: Check that the type is a valid array type
-                let count = curr_sf.sp_int();
+                let count = curr_sf.pop_int();
 
                 let new_array_ref = curr_sf.arrays.len();
                 curr_sf
@@ -402,7 +378,11 @@ impl JVM {
                 curr_sf.stack.push(Primitive::Reference(new_array_ref));
             }
             Instruction::ANewArray(index) => {}
-            Instruction::ArrayLength => {}
+            Instruction::ArrayLength => {
+                let array_ref = curr_sf.pop_ref();
+                let array_length = curr_sf.arrays[&array_ref].len();
+                curr_sf.stack.push(Primitive::Int(array_length as i32));
+            }
             Instruction::AThrow => {}
             Instruction::CheckCast(index) => {}
             Instruction::InstanceOf(index) => {}
@@ -411,15 +391,13 @@ impl JVM {
             Instruction::Wide(usize) => {}
             Instruction::MultiANewArray(index, dimensions) => {}
             Instruction::IfNull(branch_offset) => {
-                if let Primitive::Null = curr_sf.sp() {
+                if curr_sf.pop_primitive().is_type(PrimitiveType::Null) {
                     curr_sf.pc += branch_offset;
                     return;
                 }
             }
             Instruction::IfNonNull(branch_offset) => {
-                if let Primitive::Null = curr_sf.sp() {
-                    // Do nothing
-                } else {
+                if !curr_sf.pop_primitive().is_type(PrimitiveType::Null) {
                     curr_sf.pc += branch_offset;
                     return;
                 }
