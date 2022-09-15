@@ -1,5 +1,5 @@
 use crate::java_class::ConstantPoolEntry;
-use crate::{Comparison, Instruction, Operator, Primitive, PrimitiveType};
+use crate::{Instruction, Operator, Primitive, PrimitiveType};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -11,7 +11,7 @@ pub struct Method {
 pub struct StackFrame {
     pub pc: usize,
     pub locals: Vec<Primitive>,
-    pub arrays: HashMap<usize, Vec<Primitive>>,
+    pub arrays: Vec<Vec<Primitive>>,
     pub stack: Vec<Primitive>,
     pub method: Method,
     pub class_name: String,
@@ -47,9 +47,9 @@ impl StackFrame {
         }
     }
 
-    pub fn pop_ref(&mut self) -> usize {
+    pub fn pop_array_ref(&mut self) -> usize {
         match self.pop_primitive() {
-            Primitive::Reference(x) => x,
+            Primitive::ArrayReference(x) => x,
             _ => panic!("sp_ref on non-reference type"),
         }
     }
@@ -63,25 +63,27 @@ pub struct Class {
     pub methods: HashMap<String, Method>,
 }
 
+#[derive(Debug)]
 pub struct Object {
     pub class_name: String,
     pub fields: HashMap<String, Primitive>,
 }
 
-pub struct JVM {
+#[derive(Debug)]
+pub struct Jvm {
     pub class_area: HashMap<String, Class>,
     pub heap: Vec<Object>,
     pub stack_frames: Vec<StackFrame>,
 }
 
-impl JVM {
-    pub fn new(classes: Vec<Class>) -> JVM {
+impl Jvm {
+    pub fn new(classes: Vec<Class>) -> Jvm {
         let class_area = classes
             .into_iter()
             .map(|c| (c.name.clone(), c))
             .collect::<HashMap<String, Class>>();
 
-        JVM {
+        Jvm {
             class_area,
             heap: Vec::new(),
             stack_frames: Vec::new(),
@@ -94,7 +96,7 @@ impl JVM {
         self.stack_frames.push(StackFrame {
             pc: 0,
             locals: Vec::new(),
-            arrays: HashMap::new(),
+            arrays: Vec::new(),
             stack: Vec::new(),
             method,
             class_name: "Main".to_string(),
@@ -117,7 +119,7 @@ impl JVM {
         match instruction {
             Instruction::Nop => {}
             Instruction::AConstNull => curr_sf.stack.push(Primitive::Null),
-            Instruction::Const(value) => curr_sf.stack.push(value.clone()),
+            Instruction::Const(value) => curr_sf.stack.push(value),
             Instruction::LoadConst(index) => {
                 curr_sf.stack.push(
                     self.class_area[&curr_sf.class_name].constant_pool[index - 1].get_primitive(),
@@ -129,9 +131,9 @@ impl JVM {
             }
             Instruction::ALoad(_stored_type) => {
                 let index = curr_sf.pop_int();
-                let array_ref = curr_sf.pop_ref();
+                let array_ref = curr_sf.pop_array_ref();
 
-                let array = curr_sf.arrays.get(&array_ref).expect("array not found");
+                let array = curr_sf.arrays.get(array_ref).expect("array not found");
                 let value = array[index as usize].clone();
                 curr_sf.stack.push(value);
             }
@@ -144,9 +146,9 @@ impl JVM {
             Instruction::AStore(_stored_type) => {
                 let value = curr_sf.pop_primitive();
                 let index = curr_sf.pop_int();
-                let array_ref = curr_sf.pop_ref();
+                let array_ref = curr_sf.pop_array_ref();
 
-                let array = curr_sf.arrays.get_mut(&array_ref).expect("array not found");
+                let array = curr_sf.arrays.get_mut(array_ref).expect("array not found");
 
                 if array.len() <= index as usize {
                     array.resize(index as usize + 1, Primitive::Null)
@@ -283,13 +285,13 @@ impl JVM {
                 return;
             }
             Instruction::Jsr(branch_offset) => {
-                curr_sf.stack.push(Primitive::Reference(curr_sf.pc + 1));
+                curr_sf.stack.push(Primitive::Address(curr_sf.pc + 1));
                 curr_sf.pc += branch_offset;
                 return;
             }
             Instruction::Ret(index) => {
                 curr_sf.pc = match curr_sf.locals[index] {
-                    Primitive::Reference(x) => x,
+                    Primitive::Address(x) => x,
                     _ => panic!("invalid return address"),
                 };
                 return;
@@ -354,7 +356,7 @@ impl JVM {
                 let frame = StackFrame {
                     pc: 0,
                     locals: method_parameters,
-                    arrays: HashMap::new(),
+                    arrays: Vec::new(),
                     stack: vec![],
                     method,
                     class_name: curr_sf.class_name.clone(),
@@ -366,7 +368,24 @@ impl JVM {
             }
             Instruction::InvokeInterface(index) => {}
             Instruction::InvokeDynamic(index) => {}
-            Instruction::New(index) => {}
+            Instruction::New(index) => {
+                // TODO: Fully implement object creation
+                let class_name = ConstantPoolEntry::class_parser(
+                    index,
+                    &self.class_area[&curr_sf.class_name].constant_pool[..],
+                );
+
+                let object = Object {
+                    class_name,
+                    fields: HashMap::new(),
+                };
+
+                self.heap.push(object);
+
+                curr_sf
+                    .stack
+                    .push(Primitive::ObjectReference(self.heap.len() - 1));
+            }
             Instruction::NewArray(_a_type) => {
                 // TODO: Check that the type is a valid array type
                 let count = curr_sf.pop_int();
@@ -375,21 +394,21 @@ impl JVM {
                 curr_sf
                     .arrays
                     .insert(new_array_ref, Vec::with_capacity(count as usize));
-                curr_sf.stack.push(Primitive::Reference(new_array_ref));
+                curr_sf.stack.push(Primitive::ArrayReference(new_array_ref));
             }
             Instruction::ANewArray(index) => {}
             Instruction::ArrayLength => {
-                let array_ref = curr_sf.pop_ref();
-                let array_length = curr_sf.arrays[&array_ref].len();
+                let array_ref = curr_sf.pop_array_ref();
+                let array_length = curr_sf.arrays[array_ref].len();
                 curr_sf.stack.push(Primitive::Int(array_length as i32));
             }
             Instruction::AThrow => {}
             Instruction::CheckCast(index) => {}
             Instruction::InstanceOf(index) => {}
-            Instruction::MonitorEnter => {}
-            Instruction::MonitorExit => {}
-            Instruction::Wide(usize) => {}
-            Instruction::MultiANewArray(index, dimensions) => {}
+            // Instruction::MonitorEnter => {}
+            // Instruction::MonitorExit => {}
+            // Instruction::Wide(usize) => {}
+            // Instruction::MultiANewArray(index, dimensions) => {}
             Instruction::IfNull(branch_offset) => {
                 if curr_sf.pop_primitive().is_type(PrimitiveType::Null) {
                     curr_sf.pc += branch_offset;

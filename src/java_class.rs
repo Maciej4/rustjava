@@ -76,10 +76,10 @@ impl ConstantPoolEntry {
             ConstantPoolEntry::Float(f) => Primitive::Float(*f),
             ConstantPoolEntry::Long(l) => Primitive::Long(*l),
             ConstantPoolEntry::Double(d) => Primitive::Double(*d),
-            ConstantPoolEntry::Class(r) => Primitive::Reference(*r as usize),
-            ConstantPoolEntry::String(r) => Primitive::Reference(*r as usize), // TODO: this may be wrong
-            ConstantPoolEntry::MethodHandle(_, r) => Primitive::Reference(*r as usize),
-            ConstantPoolEntry::MethodType(r) => Primitive::Reference(*r as usize),
+            ConstantPoolEntry::Class(r) => Primitive::Address(*r as usize),
+            ConstantPoolEntry::String(r) => Primitive::Address(*r as usize), // TODO: this may be wrong
+            ConstantPoolEntry::MethodHandle(_, r) => Primitive::Address(*r as usize),
+            ConstantPoolEntry::MethodType(r) => Primitive::Address(*r as usize),
             _ => panic!("Unable to convert constant pool entry to loadable primitive"),
         }
     }

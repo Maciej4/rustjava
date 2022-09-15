@@ -106,7 +106,9 @@ pub enum PrimitiveType {
     Long,
     Float,
     Double,
-    Reference,
+    Address,
+    ArrayReference,
+    ObjectReference,
 }
 
 #[derive(Debug, Clone)]
@@ -119,7 +121,9 @@ pub enum Primitive {
     Long(i64),
     Float(f32),
     Double(f64),
-    Reference(usize),
+    Address(usize),
+    ArrayReference(usize),
+    ObjectReference(usize),
 }
 
 impl Primitive {
@@ -306,7 +310,12 @@ impl Primitive {
                 | (Primitive::Long(_), PrimitiveType::Long)
                 | (Primitive::Float(_), PrimitiveType::Float)
                 | (Primitive::Double(_), PrimitiveType::Double)
-                | (Primitive::Reference(_), PrimitiveType::Reference)
+                | (Primitive::Address(_), PrimitiveType::Address)
+                | (Primitive::ArrayReference(_), PrimitiveType::ArrayReference)
+                | (
+                    Primitive::ObjectReference(_),
+                    PrimitiveType::ObjectReference
+                )
         )
     }
 }

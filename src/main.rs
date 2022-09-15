@@ -13,7 +13,7 @@ fn test_class(class_name: &str, expected: &str) {
 
     print!("Running {} | expected: {} and got: ", class_name, expected);
 
-    let mut jvm = jvm::JVM::new(classes);
+    let mut jvm = jvm::Jvm::new(classes);
 
     jvm.run();
 }
