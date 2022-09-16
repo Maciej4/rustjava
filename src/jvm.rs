@@ -47,9 +47,9 @@ impl StackFrame {
         }
     }
 
-    pub fn pop_array_ref(&mut self) -> usize {
+    pub fn pop_ref(&mut self) -> usize {
         match self.pop_primitive() {
-            Primitive::ArrayReference(x) => x,
+            Primitive::Reference(x) => x,
             _ => panic!("sp_ref on non-reference type"),
         }
     }
@@ -112,9 +112,16 @@ impl Jvm {
         let curr_sf = &mut self.stack_frames[current_stack_frame_index];
         let instruction = curr_sf.method.instructions[curr_sf.pc].clone();
 
-        // println!("stack: {:?}", curr_sf.stack);
-        // println!("arrays: {:?}", curr_sf.arrays);
-        // println!("{} | {:?}\n", curr_sf.pc, instruction);
+        if let Instruction::Nop = instruction {
+            curr_sf.pc += 1;
+            return;
+        }
+
+        println!("stack: {:?}", curr_sf.stack);
+        println!("arrays: {:?}", curr_sf.arrays);
+        println!("locals: {:?}", curr_sf.locals);
+        println!("heap: {:?}", self.heap);
+        println!("{} | {:?}\n", curr_sf.pc, instruction);
 
         match instruction {
             Instruction::Nop => {}
@@ -131,7 +138,7 @@ impl Jvm {
             }
             Instruction::ALoad(_stored_type) => {
                 let index = curr_sf.pop_int();
-                let array_ref = curr_sf.pop_array_ref();
+                let array_ref = curr_sf.pop_ref();
 
                 let array = curr_sf.arrays.get(array_ref).expect("array not found");
                 let value = array[index as usize].clone();
@@ -146,7 +153,7 @@ impl Jvm {
             Instruction::AStore(_stored_type) => {
                 let value = curr_sf.pop_primitive();
                 let index = curr_sf.pop_int();
-                let array_ref = curr_sf.pop_array_ref();
+                let array_ref = curr_sf.pop_ref();
 
                 let array = curr_sf.arrays.get_mut(array_ref).expect("array not found");
 
@@ -285,13 +292,13 @@ impl Jvm {
                 return;
             }
             Instruction::Jsr(branch_offset) => {
-                curr_sf.stack.push(Primitive::Address(curr_sf.pc + 1));
+                curr_sf.stack.push(Primitive::Reference(curr_sf.pc + 1));
                 curr_sf.pc += branch_offset;
                 return;
             }
             Instruction::Ret(index) => {
                 curr_sf.pc = match curr_sf.locals[index] {
-                    Primitive::Address(x) => x,
+                    Primitive::Reference(x) => x,
                     _ => panic!("invalid return address"),
                 };
                 return;
@@ -320,16 +327,91 @@ impl Jvm {
 
                 return;
             }
-            Instruction::GetStatic(index) => {}
+            Instruction::GetStatic(index) => {
+                curr_sf.stack.push(Primitive::Int(0));
+            }
             Instruction::PutStatic(index) => {}
-            Instruction::GetField(index) => {}
-            Instruction::PutField(index) => {}
-            Instruction::InvokeVirtual(index) => {
+            Instruction::GetField(index) => {
+                let object = curr_sf.pop_ref();
+
+                let (_class_name, field_name, _field_type) = ConstantPoolEntry::field_ref_parser(
+                    index,
+                    &self.class_area[&curr_sf.class_name].constant_pool[..],
+                );
+
+                let field = self.heap[object].fields.get(&field_name).unwrap();
+
+                curr_sf.stack.push(field.clone());
+            }
+            Instruction::PutField(index) => {
+                let value = curr_sf.pop_primitive();
+                let reference = curr_sf.pop_ref();
+
+                println!("current class: {}", curr_sf.class_name);
+
+                let (_class_name, field_name, _field_type) = ConstantPoolEntry::field_ref_parser(
+                    index,
+                    &self.class_area[&curr_sf.class_name].constant_pool[..],
+                );
+
+                self.heap[reference].fields.insert(field_name, value);
+            }
+            Instruction::InvokeVirtual(_index) => {
                 println!("{:?}", curr_sf.stack);
 
-                curr_sf.stack = Vec::new();
+                curr_sf.stack.pop();
+
+                curr_sf.stack.push(Primitive::Int(0));
             }
-            Instruction::InvokeSpecial(index) => {}
+            Instruction::InvokeSpecial(index) => {
+                // TODO: Change once standard library is implemented
+                if index == 1 {
+                    curr_sf.stack.pop();
+                    curr_sf.pc += 1;
+                    return;
+                }
+
+                let (class_name, method_name, method_descriptor) =
+                    ConstantPoolEntry::method_ref_parser(
+                        index,
+                        &self.class_area[&curr_sf.class_name].constant_pool[..],
+                    );
+
+                let method = self.class_area[&class_name].methods
+                    [&format!("{}{}", method_name, method_descriptor)]
+                    .clone();
+
+                let mut method_parameters: Vec<Primitive> = Vec::new();
+
+                let param_string_len =
+                    method_descriptor.split(')').collect::<Vec<&str>>()[0].len() - 1;
+
+                for _i in 0..param_string_len {
+                    method_parameters.push(curr_sf.pop_primitive());
+                }
+
+                // Pushes the object reference to the stack
+                method_parameters.push(curr_sf.pop_primitive());
+
+                method_parameters.reverse();
+
+                println!("{:?}", method_parameters);
+
+                curr_sf.pc += 1;
+
+                let frame = StackFrame {
+                    pc: 0,
+                    locals: method_parameters,
+                    arrays: Vec::new(),
+                    stack: vec![],
+                    method,
+                    class_name,
+                };
+
+                self.stack_frames.push(frame);
+
+                return;
+            }
             Instruction::InvokeStatic(index) => {
                 let (class_name, method_name, method_descriptor) =
                     ConstantPoolEntry::method_ref_parser(
@@ -351,6 +433,8 @@ impl Jvm {
                     method_parameters.push(curr_sf.pop_primitive());
                 }
 
+                method_parameters.reverse();
+
                 curr_sf.pc += 1;
 
                 let frame = StackFrame {
@@ -359,7 +443,7 @@ impl Jvm {
                     arrays: Vec::new(),
                     stack: vec![],
                     method,
-                    class_name: curr_sf.class_name.clone(),
+                    class_name,
                 };
 
                 self.stack_frames.push(frame);
@@ -384,7 +468,7 @@ impl Jvm {
 
                 curr_sf
                     .stack
-                    .push(Primitive::ObjectReference(self.heap.len() - 1));
+                    .push(Primitive::Reference(self.heap.len() - 1));
             }
             Instruction::NewArray(_a_type) => {
                 // TODO: Check that the type is a valid array type
@@ -394,11 +478,11 @@ impl Jvm {
                 curr_sf
                     .arrays
                     .insert(new_array_ref, Vec::with_capacity(count as usize));
-                curr_sf.stack.push(Primitive::ArrayReference(new_array_ref));
+                curr_sf.stack.push(Primitive::Reference(new_array_ref));
             }
             Instruction::ANewArray(index) => {}
             Instruction::ArrayLength => {
-                let array_ref = curr_sf.pop_array_ref();
+                let array_ref = curr_sf.pop_ref();
                 let array_length = curr_sf.arrays[array_ref].len();
                 curr_sf.stack.push(Primitive::Int(array_length as i32));
             }
