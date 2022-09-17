@@ -34,17 +34,17 @@ fn test_class_set(class_names: Vec<&str>, expected: &str) {
 
     let mut jvm = jvm::Jvm::new(classes);
 
-    println!("{:?}", jvm);
+    // println!("{:?}", jvm);
 
     jvm.run();
 }
 
 fn main() {
-    test_class("Add.class", "[Int(37)]");
-    test_class("Array.class", "[Int(10)]");
-    test_class("HelloWorld.class", "[Int(1)]");
-    test_class("If.class", "[Int(17)]");
-    test_class("Main.class", "[Int(17)]");
-    println!("Running multi class test");
-    test_class_set(vec!["ClassTest.class", "Point.class"], "[Int(90)]");
+    println!();
+    test_class("Add.class", "37");
+    test_class("Array.class", "10");
+    test_class("HelloWorld.class", "1");
+    test_class("If.class", "17");
+    test_class("Main.class", "17");
+    test_class_set(vec!["ClassTest.class", "Point.class"], "90");
 }

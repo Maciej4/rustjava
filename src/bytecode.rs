@@ -309,4 +309,18 @@ impl Primitive {
                 | (Primitive::Reference(_), PrimitiveType::Reference)
         )
     }
+
+    pub fn pretty_print(&self) -> String {
+        match self {
+            Primitive::Null => "null".to_string(),
+            Primitive::Byte(x) => x.to_string(),
+            Primitive::Short(x) => x.to_string(),
+            Primitive::Char(x) => x.to_string(),
+            Primitive::Int(x) => x.to_string(),
+            Primitive::Long(x) => x.to_string(),
+            Primitive::Float(x) => x.to_string(),
+            Primitive::Double(x) => x.to_string(),
+            Primitive::Reference(x) => x.to_string(),
+        }
+    }
 }

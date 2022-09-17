@@ -83,11 +83,15 @@ impl Jvm {
             .map(|c| (c.name.clone(), c))
             .collect::<HashMap<String, Class>>();
 
-        Jvm {
+        // Iterate over the class area and the clinits to the stack frames
+
+        let jvm = Jvm {
             class_area,
             heap: Vec::new(),
             stack_frames: Vec::new(),
-        }
+        };
+
+        jvm
     }
 
     pub fn run(&mut self) {
@@ -101,6 +105,22 @@ impl Jvm {
             method,
             class_name: "Main".to_string(),
         });
+
+        // Iterate over all the classes, if they have <clinit> add it to the stack frames
+        for class in self.class_area.values() {
+            if class.methods.contains_key("<clinit>()V") {
+                let method = class.methods["<clinit>()V"].clone();
+
+                self.stack_frames.push(StackFrame {
+                    pc: 0,
+                    locals: Vec::new(),
+                    arrays: Vec::new(),
+                    stack: Vec::new(),
+                    method,
+                    class_name: class.name.clone(),
+                });
+            }
+        }
 
         while !self.stack_frames.is_empty() {
             self.step();
@@ -117,11 +137,11 @@ impl Jvm {
             return;
         }
 
-        println!("stack: {:?}", curr_sf.stack);
-        println!("arrays: {:?}", curr_sf.arrays);
-        println!("locals: {:?}", curr_sf.locals);
-        println!("heap: {:?}", self.heap);
-        println!("{} | {:?}\n", curr_sf.pc, instruction);
+        // println!("stack: {:?}", curr_sf.stack);
+        // println!("arrays: {:?}", curr_sf.arrays);
+        // println!("locals: {:?}", curr_sf.locals);
+        // println!("heap: {:?}", self.heap);
+        // println!("{} | {:?}\n", curr_sf.pc, instruction);
 
         match instruction {
             Instruction::Nop => {}
@@ -328,9 +348,33 @@ impl Jvm {
                 return;
             }
             Instruction::GetStatic(index) => {
-                curr_sf.stack.push(Primitive::Int(0));
+                let (class_name, field_name, _field_type) = ConstantPoolEntry::field_ref_parser(
+                    index,
+                    &self.class_area[&curr_sf.class_name].constant_pool[..],
+                );
+
+                if self.class_area.contains_key(&class_name) {
+                    let value = self.class_area[&class_name].static_fields[&field_name].clone();
+
+                    curr_sf.stack.push(value);
+                } else {
+                    // println!("Unable to find static field {}/{} : {}", class_name, field_name, _field_type);
+                }
             }
-            Instruction::PutStatic(index) => {}
+            Instruction::PutStatic(index) => {
+                let value = curr_sf.pop_primitive();
+
+                let (class_name, field_name, _field_type) = ConstantPoolEntry::field_ref_parser(
+                    index,
+                    &self.class_area[&curr_sf.class_name].constant_pool[..],
+                );
+
+                self.class_area
+                    .get_mut(&class_name)
+                    .unwrap()
+                    .static_fields
+                    .insert(field_name, value);
+            }
             Instruction::GetField(index) => {
                 let object = curr_sf.pop_ref();
 
@@ -347,8 +391,6 @@ impl Jvm {
                 let value = curr_sf.pop_primitive();
                 let reference = curr_sf.pop_ref();
 
-                println!("current class: {}", curr_sf.class_name);
-
                 let (_class_name, field_name, _field_type) = ConstantPoolEntry::field_ref_parser(
                     index,
                     &self.class_area[&curr_sf.class_name].constant_pool[..],
@@ -356,26 +398,25 @@ impl Jvm {
 
                 self.heap[reference].fields.insert(field_name, value);
             }
-            Instruction::InvokeVirtual(_index) => {
-                println!("{:?}", curr_sf.stack);
-
-                curr_sf.stack.pop();
-
-                curr_sf.stack.push(Primitive::Int(0));
-            }
-            Instruction::InvokeSpecial(index) => {
-                // TODO: Change once standard library is implemented
-                if index == 1 {
-                    curr_sf.stack.pop();
-                    curr_sf.pc += 1;
-                    return;
-                }
-
+            Instruction::InvokeVirtual(index) | Instruction::InvokeSpecial(index) => {
+                // TODO: May need to split into separate InvokeVirtual and InvokeSpecial implementations.
                 let (class_name, method_name, method_descriptor) =
                     ConstantPoolEntry::method_ref_parser(
                         index,
                         &self.class_area[&curr_sf.class_name].constant_pool[..],
                     );
+
+                if !self.class_area.contains_key(&class_name) {
+                    // println!("Unable to find method {}/{} : {}", class_name, method_name, method_descriptor);
+                    if method_name == "println" {
+                        let value = curr_sf.pop_primitive();
+                        println!("{}", value.pretty_print());
+                    }
+
+                    curr_sf.stack.pop();
+                    curr_sf.pc += 1;
+                    return;
+                }
 
                 let method = self.class_area[&class_name].methods
                     [&format!("{}{}", method_name, method_descriptor)]
@@ -395,7 +436,7 @@ impl Jvm {
 
                 method_parameters.reverse();
 
-                println!("{:?}", method_parameters);
+                // println!("{:?}", method_parameters);
 
                 curr_sf.pc += 1;
 
