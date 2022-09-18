@@ -36,21 +36,21 @@ impl StackFrame {
     pub fn pop_int(&mut self) -> i32 {
         match self.pop_primitive() {
             Primitive::Int(x) => x,
-            _ => panic!("sp_int on non-int type"),
+            _ => panic!("pop_int on non-int type"),
         }
     }
 
     pub fn pop_long(&mut self) -> i64 {
         match self.pop_primitive() {
             Primitive::Long(x) => x,
-            _ => panic!("sp_long on non-long type"),
+            _ => panic!("pop_long on non-long type"),
         }
     }
 
     pub fn pop_ref(&mut self) -> usize {
         match self.pop_primitive() {
             Primitive::Reference(x) => x,
-            _ => panic!("sp_ref on non-reference type"),
+            _ => panic!("pop_ref on non-reference type"),
         }
     }
 }
@@ -83,15 +83,11 @@ impl Jvm {
             .map(|c| (c.name.clone(), c))
             .collect::<HashMap<String, Class>>();
 
-        // Iterate over the class area and the clinits to the stack frames
-
-        let jvm = Jvm {
+        Jvm {
             class_area,
             heap: Vec::new(),
             stack_frames: Vec::new(),
-        };
-
-        jvm
+        }
     }
 
     pub fn run(&mut self) {
@@ -106,7 +102,7 @@ impl Jvm {
             class_name: "Main".to_string(),
         });
 
-        // Iterate over all the classes, if they have <clinit> add it to the stack frames
+        // Perform static initialization for all classes
         for class in self.class_area.values() {
             if class.methods.contains_key("<clinit>()V") {
                 let method = class.methods["<clinit>()V"].clone();
@@ -288,10 +284,10 @@ impl Jvm {
 
                 curr_sf.stack.push(Primitive::Int(result));
             }
-            Instruction::FCmpL => {}
-            Instruction::FCmpG => {}
-            Instruction::DCmpL => {}
-            Instruction::DCmpG => {}
+            // Instruction::FCmpL => {}
+            // Instruction::FCmpG => {}
+            // Instruction::DCmpL => {}
+            // Instruction::DCmpG => {}
             Instruction::If(branch_offset, comparator) => {
                 if Primitive::compare_to_zero(curr_sf.pop_primitive(), comparator) {
                     curr_sf.pc += branch_offset;
@@ -408,6 +404,7 @@ impl Jvm {
 
                 if !self.class_area.contains_key(&class_name) {
                     // println!("Unable to find method {}/{} : {}", class_name, method_name, method_descriptor);
+                    // TODO: Move this to standard library
                     if method_name == "println" {
                         let value = curr_sf.pop_primitive();
                         println!("{}", value.pretty_print());
@@ -422,7 +419,7 @@ impl Jvm {
                     [&format!("{}{}", method_name, method_descriptor)]
                     .clone();
 
-                let mut method_parameters: Vec<Primitive> = Vec::new();
+                let mut method_parameters = Vec::new();
 
                 let param_string_len =
                     method_descriptor.split(')').collect::<Vec<&str>>()[0].len() - 1;
@@ -431,25 +428,20 @@ impl Jvm {
                     method_parameters.push(curr_sf.pop_primitive());
                 }
 
-                // Pushes the object reference to the stack
                 method_parameters.push(curr_sf.pop_primitive());
 
                 method_parameters.reverse();
 
-                // println!("{:?}", method_parameters);
-
                 curr_sf.pc += 1;
 
-                let frame = StackFrame {
+                self.stack_frames.push(StackFrame {
                     pc: 0,
                     locals: method_parameters,
                     arrays: Vec::new(),
                     stack: vec![],
                     method,
                     class_name,
-                };
-
-                self.stack_frames.push(frame);
+                });
 
                 return;
             }
@@ -464,7 +456,7 @@ impl Jvm {
                     [&format!("{}{}", method_name, method_descriptor)]
                     .clone();
 
-                let mut method_parameters: Vec<Primitive> = Vec::new();
+                let mut method_parameters = Vec::new();
 
                 let param_string_len =
                     method_descriptor.split(')').collect::<Vec<&str>>()[0].len() - 1;
@@ -478,41 +470,36 @@ impl Jvm {
 
                 curr_sf.pc += 1;
 
-                let frame = StackFrame {
+                self.stack_frames.push(StackFrame {
                     pc: 0,
                     locals: method_parameters,
                     arrays: Vec::new(),
                     stack: vec![],
                     method,
                     class_name,
-                };
-
-                self.stack_frames.push(frame);
+                });
 
                 return;
             }
-            Instruction::InvokeInterface(index) => {}
-            Instruction::InvokeDynamic(index) => {}
+            // Instruction::InvokeInterface(index) => {}
+            // Instruction::InvokeDynamic(index) => {}
             Instruction::New(index) => {
-                // TODO: Fully implement object creation
                 let class_name = ConstantPoolEntry::class_parser(
                     index,
                     &self.class_area[&curr_sf.class_name].constant_pool[..],
                 );
 
-                let object = Object {
+                self.heap.push(Object {
                     class_name,
                     fields: HashMap::new(),
-                };
-
-                self.heap.push(object);
+                });
 
                 curr_sf
                     .stack
                     .push(Primitive::Reference(self.heap.len() - 1));
             }
-            Instruction::NewArray(_a_type) => {
-                // TODO: Check that the type is a valid array type
+            Instruction::NewArray(_a_type) | Instruction::ANewArray(_a_type) => {
+                // TODO: Actually implement ANewArray correctly
                 let count = curr_sf.pop_int();
 
                 let new_array_ref = curr_sf.arrays.len();
@@ -521,15 +508,14 @@ impl Jvm {
                     .insert(new_array_ref, Vec::with_capacity(count as usize));
                 curr_sf.stack.push(Primitive::Reference(new_array_ref));
             }
-            Instruction::ANewArray(index) => {}
             Instruction::ArrayLength => {
                 let array_ref = curr_sf.pop_ref();
                 let array_length = curr_sf.arrays[array_ref].len();
                 curr_sf.stack.push(Primitive::Int(array_length as i32));
             }
-            Instruction::AThrow => {}
-            Instruction::CheckCast(index) => {}
-            Instruction::InstanceOf(index) => {}
+            // Instruction::AThrow => {}
+            // Instruction::CheckCast(index) => {}
+            // Instruction::InstanceOf(index) => {}
             // Instruction::MonitorEnter => {}
             // Instruction::MonitorExit => {}
             // Instruction::Wide(usize) => {}
@@ -546,7 +532,7 @@ impl Jvm {
                     return;
                 }
             }
-            Instruction::Breakpoint => {}
+            // Instruction::Breakpoint => {}
             _ => panic!("unsupported instruction"),
         }
 

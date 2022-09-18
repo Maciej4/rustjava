@@ -17,7 +17,7 @@ pub enum Instruction {
     Dup2X1,
     Dup2X2,
     Swap,
-    Add(PrimitiveType), // TODO: Squish these into one math instruction
+    Add(PrimitiveType),
     Sub(PrimitiveType),
     Mul(PrimitiveType),
     Div(PrimitiveType),
@@ -31,7 +31,7 @@ pub enum Instruction {
     Xor(PrimitiveType),
     IInc(usize, i8),
     Convert(PrimitiveType, PrimitiveType),
-    LCmp, // TODO: Perhaps these could be reduced to a single instruction?
+    LCmp,
     FCmpL,
     FCmpG,
     DCmpL,
@@ -41,8 +41,8 @@ pub enum Instruction {
     Goto(usize),
     Jsr(usize),
     Ret(usize),
-    TableSwitch(usize, usize, usize), // TODO: Properly implement this.
-    LookupSwitch(usize, usize, usize),
+    // TableSwitch(usize, usize, usize), // TODO: Properly implement this.
+    // LookupSwitch(usize, usize, usize),
     Return(PrimitiveType),
     GetStatic(usize),
     PutStatic(usize),
@@ -62,8 +62,8 @@ pub enum Instruction {
     InstanceOf(usize),
     MonitorEnter,
     MonitorExit,
-    Wide(usize),
-    MultiANewArray(usize, usize),
+    // Wide(usize),
+    // MultiANewArray(usize, usize),
     IfNull(usize),
     IfNonNull(usize),
     Breakpoint,
