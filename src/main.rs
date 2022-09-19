@@ -1,8 +1,10 @@
 use crate::bytecode::*;
+use tree_sitter::Parser;
 
 mod bytecode;
 mod class_file_parser;
 mod java_class;
+mod javac;
 mod jvm;
 mod reader;
 
@@ -22,7 +24,7 @@ fn test_class_set(class_names: Vec<&str>, expected: &str) {
     let mut classes = vec![];
 
     print!(
-        "Running {:?} | expected: {} and got: ",
+        "Running {} | expected: {} and got: ",
         class_names[0], expected
     );
 
@@ -41,10 +43,16 @@ fn test_class_set(class_names: Vec<&str>, expected: &str) {
 
 fn main() {
     println!();
-    test_class("Add.class", "37");
-    test_class("Array.class", "10");
-    test_class("HelloWorld.class", "1");
-    test_class("If.class", "17");
-    test_class("Main.class", "17");
-    test_class_set(vec!["ClassTest.class", "Point.class"], "90");
+    // test_class("Add.class", "37");
+    // test_class("Array.class", "10");
+    // test_class("HelloWorld.class", "1");
+    // test_class("If.class", "17");
+    // test_class("Main.class", "17");
+    // test_class_set(vec!["ClassTest.class", "Point.class"], "90");
+
+    let code = include_str!("java_tests/HelloWorld.java");
+
+    let parsed_class = javac::parse_java_code_to_class("HelloWorld".to_string(), code.to_string());
+
+    // println!("\n{:?}", parsed_class);
 }
