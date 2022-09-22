@@ -1,10 +1,11 @@
 use crate::jvm::{Class, Method};
 use std::collections::HashMap;
 use tree_sitter::{Node, Parser, Tree};
+use crate::Instruction;
 
 /// Iterate over a tree's nodes and print them.
-fn pretty_print_tree(tree: &Tree) {
-    let mut stack = vec![tree.root_node()];
+fn pretty_print_tree(root_node: &Node) {
+    let mut stack = vec![*root_node];
     let mut indent_depth_list = vec![0];
 
     while let Some(node) = stack.pop() {
@@ -61,6 +62,47 @@ fn get_child_nodes_by_kind<'a>(node: &tree_sitter::Node<'a>, kind: &str) -> Vec<
     nodes
 }
 
+fn parse_expression(node: &Node, source: &[u8], super_locals: Vec<String>) -> Vec<Instruction> {
+    let mut instructions = vec![];
+
+    // TODO: Implement
+
+    instructions
+}
+
+fn parse_code_block(node: &Node, source: &[u8], super_locals: Vec<String>) -> Vec<Instruction> {
+    let mut instructions = vec![];
+    let mut locals = super_locals;
+
+    for i in 0..node.child_count() {
+        let child = node.child(i).unwrap();
+
+        match child.kind() {
+            "local_variable_declaration" => {
+                let variable_name = get_child_node_by_kind(&child, "identifier").utf8_text(source).unwrap().to_string();
+
+                locals.push(variable_name);
+            },
+            "expression_statement" => {
+                let expression = child.child(0).unwrap();
+
+                match expression.kind() {
+                    "assignment_expression" => {
+
+                    },
+                    "method_invocation" => {
+
+                    },
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+
+    instructions
+}
+
 fn parse_method(node: &Node, source: &[u8]) -> (String, Method) {
     let method_name = get_child_node_by_kind(node, "identifier")
         .utf8_text(source)
@@ -109,7 +151,11 @@ pub fn parse_java_code_to_classes(code: String) {
         .expect("Error loading Java grammar");
     let tree = parser.parse(&code, None).unwrap();
 
-    pretty_print_tree(&tree);
+    // pretty_print_tree(&tree.root_node());
+
+    let code_block = get_child_node_by_kind(&get_child_node_by_kind(&get_child_node_by_kind(&tree.root_node().child(0).unwrap(), "class_body"), "method_declaration"), "block");
+
+    pretty_print_tree(&code_block);
 
     println!();
 
@@ -122,8 +168,8 @@ pub fn parse_java_code_to_classes(code: String) {
         .utf8_text(code.as_bytes())
         .unwrap();
 
-    println!("class name: {}", class_name);
-    println!();
+    // println!("class name: {}", class_name);
+    // println!();
 
     let n = tree.root_node().child(0).unwrap();
     pretty_print_node_full(&n, code.as_bytes());
