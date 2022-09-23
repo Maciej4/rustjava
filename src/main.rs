@@ -52,5 +52,9 @@ fn main() {
 
     let code = include_str!("java_tests/Test.java");
 
-    javac::parse_java_code_to_classes(code.to_string());
+    let classes = javac::parse_java_code_to_classes(code.to_string());
+
+    let mut jvm = jvm::Jvm::new(classes);
+
+    jvm.run();
 }

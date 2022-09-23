@@ -1,6 +1,7 @@
 use crate::jvm::{Class, Method};
 use crate::{Instruction, Primitive, PrimitiveType};
 use std::collections::HashMap;
+use std::fmt::Write;
 use std::ops::Index;
 use tree_sitter::{Node, Parser, Tree};
 
@@ -127,7 +128,10 @@ fn parse_code_block(node: &Node, source: &[u8], super_locals: Vec<String>) -> Ve
             "local_variable_declaration" => {
                 let variable_declarator = get_child_node_by_kind(&child, "variable_declarator");
 
-                let variable_name = get_child_node_by_kind(&variable_declarator, "identifier").utf8_text(source).unwrap().to_string();
+                let variable_name = get_child_node_by_kind(&variable_declarator, "identifier")
+                    .utf8_text(source)
+                    .unwrap()
+                    .to_string();
 
                 if variable_declarator.child_count() == 3 {
                     instructions.append(&mut parse_expression(
@@ -205,7 +209,10 @@ fn parse_code_block(node: &Node, source: &[u8], super_locals: Vec<String>) -> Ve
                     }
                     "method_invocation" => {
                         instructions.append(&mut parse_expression(
-                            &get_child_node_by_kinds(&expression, vec!["argument_list", "identifier"]),
+                            &get_child_node_by_kinds(
+                                &expression,
+                                vec!["argument_list", "identifier"],
+                            ),
                             source,
                             &locals,
                         ));
@@ -217,20 +224,109 @@ fn parse_code_block(node: &Node, source: &[u8], super_locals: Vec<String>) -> Ve
         }
     }
 
-    println!("locals: {:?}", locals);
-
     instructions
 }
 
+fn parse_method_args(node: &Node, source: &[u8]) -> String {
+    let formal_parameters = get_child_node_by_kind(node, "formal_parameters");
+
+    let mut parameters = String::new();
+
+    parameters.push('(');
+
+    let formal_params_to_parse = if formal_parameters.child_count() >= 3 {
+        // This is a bit of a hack, but it works for now
+        vec![
+            get_child_nodes_by_kind(&formal_parameters, "formal_parameter")
+                .into_iter()
+                .map(|n| n.child(0).unwrap())
+                .collect(),
+            vec![node.child(1).unwrap()],
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
+    } else {
+        vec![node.child(1).unwrap()]
+    };
+
+    for i in 0..formal_params_to_parse.len() {
+        let parameter = formal_params_to_parse.get(i).unwrap();
+
+        match parameter.kind() {
+            "integral_type" => match parameter.child(0).unwrap().kind() {
+                "byte" => parameters.push('B'),
+                "short" => parameters.push('S'),
+                "int" => parameters.push('I'),
+                "long" => parameters.push('J'),
+                "char" => parameters.push('C'),
+                _ => panic!(
+                    "Unknown integral type {}",
+                    parameter.child(0).unwrap().kind()
+                ),
+            },
+            "floating_point_type" => match parameter.child(0).unwrap().kind() {
+                "float" => parameters.push('F'),
+                "double" => parameters.push('D'),
+                _ => panic!(
+                    "Unknown floating point type {}",
+                    parameter.child(0).unwrap().kind()
+                ),
+            },
+            "boolean_type" => {
+                parameters.push('Z');
+            }
+            "array_type" => {
+                parameters.push('[');
+                // TODO: actually parse the array type
+                parameters.push_str("Ljava/lang/String;");
+            }
+            "void_type" => {
+                parameters.push('V');
+            }
+            _ => {
+                panic!("Unknown parameter type {}", parameter.kind());
+            }
+        }
+    }
+
+    let c = parameters.pop().unwrap();
+
+    parameters.push(')');
+    parameters.push(c);
+
+    parameters
+}
+
 fn parse_method(node: &Node, source: &[u8]) -> (String, Method) {
-    let method_name = get_child_node_by_kind(node, "identifier")
+    let mut method_name = get_child_node_by_kind(node, "identifier")
         .utf8_text(source)
         .unwrap()
         .to_string();
 
+    method_name.push_str(parse_method_args(node, source).as_str());
+
     let method_code_block = get_child_node_by_kind(node, "block");
 
-    let instructions = parse_code_block(&method_code_block, source, vec![]);
+    // TODO: passed parameters should be added to the locals
+    let mut instructions = parse_code_block(&method_code_block, source, vec![]);
+
+    let c = method_name.chars().last().unwrap();
+
+    instructions.push(Instruction::Return(match c {
+        'V' => PrimitiveType::Null,
+        'B' => PrimitiveType::Byte,
+        'S' => PrimitiveType::Short,
+        'I' => PrimitiveType::Int,
+        'J' => PrimitiveType::Long,
+        'C' => PrimitiveType::Char,
+        'F' => PrimitiveType::Float,
+        'D' => PrimitiveType::Double,
+        // Missing boolean ('Z') support
+        _ => {
+            panic!("unsupported return type character")
+        }
+    }));
 
     let method = Method { instructions };
 
