@@ -1,7 +1,8 @@
 use crate::jvm::{Class, Method};
+use crate::{Instruction, Primitive, PrimitiveType};
 use std::collections::HashMap;
+use std::ops::Index;
 use tree_sitter::{Node, Parser, Tree};
-use crate::Instruction;
 
 /// Iterate over a tree's nodes and print them.
 fn pretty_print_tree(root_node: &Node) {
@@ -48,6 +49,14 @@ fn get_child_node_by_kind<'a>(node: &tree_sitter::Node<'a>, kind: &str) -> Node<
     panic!("Could not find child node with name {}", kind);
 }
 
+fn get_child_node_by_kinds<'a>(node: &tree_sitter::Node<'a>, kinds: Vec<&str>) -> Node<'a> {
+    if kinds.is_empty() {
+        return *node;
+    }
+
+    return get_child_node_by_kinds(&get_child_node_by_kind(node, kinds[0]), kinds[1..].to_vec());
+}
+
 fn get_child_nodes_by_kind<'a>(node: &tree_sitter::Node<'a>, kind: &str) -> Vec<Node<'a>> {
     let mut nodes = vec![];
 
@@ -62,10 +71,47 @@ fn get_child_nodes_by_kind<'a>(node: &tree_sitter::Node<'a>, kind: &str) -> Vec<
     nodes
 }
 
-fn parse_expression(node: &Node, source: &[u8], super_locals: Vec<String>) -> Vec<Instruction> {
+fn parse_expression(node: &Node, source: &[u8], super_locals: &Vec<String>) -> Vec<Instruction> {
     let mut instructions = vec![];
 
-    // TODO: Implement
+    match node.kind() {
+        "decimal_integer_literal" => {
+            let value = node.utf8_text(source).unwrap().parse::<i32>().unwrap();
+
+            instructions.push(Instruction::Const(Primitive::Int(value)));
+        }
+        "identifier" => {
+            let name = node.utf8_text(source).unwrap();
+
+            if super_locals.contains(&name.to_string()) {
+                instructions.push(Instruction::Load(
+                    super_locals.iter().position(|r| r == name).unwrap(),
+                    PrimitiveType::Int,
+                ));
+            } else {
+                panic!("Could not find local variable {}", name);
+            }
+        }
+        "binary_expression" => {
+            let left = node.child(0).unwrap();
+            let right = node.child(2).unwrap();
+
+            instructions.append(&mut parse_expression(&left, source, super_locals));
+            instructions.append(&mut parse_expression(&right, source, super_locals));
+
+            match node.child(1).unwrap().kind() {
+                "+" => instructions.push(Instruction::Add(PrimitiveType::Int)),
+                "-" => instructions.push(Instruction::Sub(PrimitiveType::Int)),
+                "*" => instructions.push(Instruction::Mul(PrimitiveType::Int)),
+                "/" => instructions.push(Instruction::Div(PrimitiveType::Int)),
+                "%" => instructions.push(Instruction::Rem(PrimitiveType::Int)),
+                _ => panic!("Unknown operator {}", node.child(1).unwrap().kind()),
+            }
+        }
+        _ => {
+            panic!("Unknown expression type {}", node.kind());
+        }
+    }
 
     instructions
 }
@@ -79,26 +125,99 @@ fn parse_code_block(node: &Node, source: &[u8], super_locals: Vec<String>) -> Ve
 
         match child.kind() {
             "local_variable_declaration" => {
-                let variable_name = get_child_node_by_kind(&child, "identifier").utf8_text(source).unwrap().to_string();
+                let variable_declarator = get_child_node_by_kind(&child, "variable_declarator");
+
+                let variable_name = get_child_node_by_kind(&variable_declarator, "identifier").utf8_text(source).unwrap().to_string();
+
+                if variable_declarator.child_count() == 3 {
+                    instructions.append(&mut parse_expression(
+                        &variable_declarator.child(2).unwrap(),
+                        source,
+                        &locals,
+                    ));
+
+                    instructions.push(Instruction::Store(locals.len(), PrimitiveType::Int));
+                }
 
                 locals.push(variable_name);
-            },
+            }
             "expression_statement" => {
                 let expression = child.child(0).unwrap();
 
                 match expression.kind() {
                     "assignment_expression" => {
-
-                    },
+                        if expression.child_count() == 3 {
+                            match expression.child(1).unwrap().kind() {
+                                "=" => {
+                                    instructions.append(&mut parse_expression(
+                                        &expression.child(2).unwrap(),
+                                        source,
+                                        &locals,
+                                    ));
+                                    instructions.push(Instruction::Store(
+                                        locals
+                                            .iter()
+                                            .position(|r| {
+                                                r == expression
+                                                    .child(0)
+                                                    .unwrap()
+                                                    .utf8_text(source)
+                                                    .unwrap()
+                                            })
+                                            .unwrap(),
+                                        PrimitiveType::Int,
+                                    ));
+                                }
+                                "+=" => {
+                                    instructions.append(&mut parse_expression(
+                                        &expression.child(0).unwrap(),
+                                        source,
+                                        &locals,
+                                    ));
+                                    instructions.append(&mut parse_expression(
+                                        &expression.child(2).unwrap(),
+                                        source,
+                                        &locals,
+                                    ));
+                                    instructions.push(Instruction::Add(PrimitiveType::Int));
+                                    instructions.push(Instruction::Store(
+                                        locals
+                                            .iter()
+                                            .position(|r| {
+                                                r == expression
+                                                    .child(0)
+                                                    .unwrap()
+                                                    .utf8_text(source)
+                                                    .unwrap()
+                                            })
+                                            .unwrap(),
+                                        PrimitiveType::Int,
+                                    ));
+                                }
+                                _ => {
+                                    panic!(
+                                        "Unknown assignment operator {}",
+                                        expression.child(1).unwrap().utf8_text(source).unwrap()
+                                    );
+                                }
+                            }
+                        }
+                    }
                     "method_invocation" => {
-
-                    },
+                        instructions.append(&mut parse_expression(
+                            &get_child_node_by_kinds(&expression, vec!["argument_list", "identifier"]),
+                            source,
+                            &locals,
+                        ));
+                    }
                     _ => {}
                 }
             }
             _ => {}
         }
     }
+
+    println!("locals: {:?}", locals);
 
     instructions
 }
@@ -109,9 +228,11 @@ fn parse_method(node: &Node, source: &[u8]) -> (String, Method) {
         .unwrap()
         .to_string();
 
-    let method = Method {
-        instructions: vec![],
-    };
+    let method_code_block = get_child_node_by_kind(node, "block");
+
+    let instructions = parse_code_block(&method_code_block, source, vec![]);
+
+    let method = Method { instructions };
 
     (method_name, method)
 }
@@ -144,18 +265,18 @@ fn parse_class(node: &Node, source: &[u8]) -> Class {
     }
 }
 
-pub fn parse_java_code_to_classes(code: String) {
+pub fn parse_java_code_to_classes(code: String) -> Vec<Class> {
     let mut parser = Parser::new();
     parser
         .set_language(tree_sitter_java::language())
         .expect("Error loading Java grammar");
     let tree = parser.parse(&code, None).unwrap();
 
-    // pretty_print_tree(&tree.root_node());
+    pretty_print_tree(&tree.root_node());
 
-    let code_block = get_child_node_by_kind(&get_child_node_by_kind(&get_child_node_by_kind(&tree.root_node().child(0).unwrap(), "class_body"), "method_declaration"), "block");
-
-    pretty_print_tree(&code_block);
+    // let code_block = get_child_node_by_kind(&get_child_node_by_kind(&get_child_node_by_kind(&tree.root_node().child(0).unwrap(), "class_body"), "method_declaration"), "block");
+    //
+    // pretty_print_tree(&code_block);
 
     println!();
 
@@ -186,4 +307,6 @@ pub fn parse_java_code_to_classes(code: String) {
     }
 
     println!("classes: {:?}", classes);
+
+    classes
 }
