@@ -1,9 +1,7 @@
 use crate::jvm::{Class, Method};
 use crate::{Instruction, Primitive, PrimitiveType};
 use std::collections::HashMap;
-use std::fmt::Write;
-use std::ops::Index;
-use tree_sitter::{Node, Parser, Tree};
+use tree_sitter::{Node, Parser};
 
 /// Iterate over a tree's nodes and print them.
 fn pretty_print_tree(root_node: &Node) {
@@ -76,6 +74,9 @@ fn parse_expression(node: &Node, source: &[u8], super_locals: &Vec<String>) -> V
     let mut instructions = vec![];
 
     match node.kind() {
+        "(" => {}
+        "," => {}
+        ")" => {}
         "decimal_integer_literal" => {
             let value = node.utf8_text(source).unwrap().parse::<i32>().unwrap();
 
@@ -108,6 +109,21 @@ fn parse_expression(node: &Node, source: &[u8], super_locals: &Vec<String>) -> V
                 "%" => instructions.push(Instruction::Rem(PrimitiveType::Int)),
                 _ => panic!("Unknown operator {}", node.child(1).unwrap().kind()),
             }
+        }
+        "method_invocation" => {
+            let method_name = get_child_node_by_kind(node, "identifier")
+                .utf8_text(source)
+                .unwrap();
+            let arguments = get_child_node_by_kind(node, "argument_list");
+
+            for i in 0..arguments.child_count() {
+                let argument = arguments.child(i).unwrap();
+
+                instructions.append(&mut parse_expression(&argument, source, super_locals));
+            }
+
+            // TODO: need to get the method from the class and add it to the constant pool to invoke it
+            instructions.push(Instruction::InvokeVirtual(0));
         }
         _ => {
             panic!("Unknown expression type {}", node.kind());
@@ -220,6 +236,15 @@ fn parse_code_block(node: &Node, source: &[u8], super_locals: Vec<String>) -> Ve
                     _ => {}
                 }
             }
+            "return_statement" => {
+                instructions.append(&mut parse_expression(
+                    &child.child(1).unwrap(),
+                    source,
+                    &locals,
+                ));
+                // This is handled by the caller
+                // instructions.push(Instruction::Return(PrimitiveType::Int));
+            }
             _ => {}
         }
     }
@@ -231,6 +256,8 @@ fn parse_method_args(node: &Node, source: &[u8]) -> String {
     let formal_parameters = get_child_node_by_kind(node, "formal_parameters");
 
     let mut parameters = String::new();
+    // let mut parameter_names = vec![];
+    let mut parameter_types = vec![];
 
     parameters.push('(');
 
@@ -255,19 +282,40 @@ fn parse_method_args(node: &Node, source: &[u8]) -> String {
 
         match parameter.kind() {
             "integral_type" => match parameter.child(0).unwrap().kind() {
-                "byte" => parameters.push('B'),
-                "short" => parameters.push('S'),
-                "int" => parameters.push('I'),
-                "long" => parameters.push('J'),
-                "char" => parameters.push('C'),
+                "byte" => {
+                    parameters.push('B');
+                    parameter_types.push(PrimitiveType::Byte);
+                }
+                "short" => {
+                    parameters.push('S');
+                    parameter_types.push(PrimitiveType::Short);
+                }
+                "int" => {
+                    parameters.push('I');
+                    parameter_types.push(PrimitiveType::Int);
+                }
+                "long" => {
+                    parameters.push('J');
+                    parameter_types.push(PrimitiveType::Long);
+                }
+                "char" => {
+                    parameters.push('C');
+                    parameter_types.push(PrimitiveType::Char);
+                }
                 _ => panic!(
                     "Unknown integral type {}",
                     parameter.child(0).unwrap().kind()
                 ),
             },
             "floating_point_type" => match parameter.child(0).unwrap().kind() {
-                "float" => parameters.push('F'),
-                "double" => parameters.push('D'),
+                "float" => {
+                    parameters.push('F');
+                    parameter_types.push(PrimitiveType::Float);
+                }
+                "double" => {
+                    parameters.push('D');
+                    parameter_types.push(PrimitiveType::Double);
+                }
                 _ => panic!(
                     "Unknown floating point type {}",
                     parameter.child(0).unwrap().kind()
@@ -275,20 +323,41 @@ fn parse_method_args(node: &Node, source: &[u8]) -> String {
             },
             "boolean_type" => {
                 parameters.push('Z');
+                // There is no boolean primitive type
+                // parameter_types.push(PrimitiveType::Boolean);
             }
             "array_type" => {
                 parameters.push('[');
                 // TODO: actually parse the array type
                 parameters.push_str("Ljava/lang/String;");
+                parameter_types.push(PrimitiveType::Reference);
             }
             "void_type" => {
                 parameters.push('V');
+                parameter_types.push(PrimitiveType::Null);
             }
             _ => {
                 panic!("Unknown parameter type {}", parameter.kind());
             }
         }
     }
+
+    // for i in 0..formal_params_to_parse.len() - 1 {
+    //     let parameter = match formal_params_to_parse.get(i).unwrap().kind() {
+    //         "integral_type" => formal_params_to_parse.get(i).unwrap().child(0).unwrap(),
+    //         "floating_point_type" => formal_params_to_parse.get(i).unwrap().child(0).unwrap(),
+    //         "boolean_type" => *formal_params_to_parse.get(i).unwrap(),
+    //         "void_type" => *formal_params_to_parse.get(i).unwrap(),
+    //         _ => {panic!("Unknown parameter type {}", formal_params_to_parse.get(i).unwrap().kind())}
+    //     };
+    //
+    //     parameter_names.push(
+    //         get_child_node_by_kind(&parameter, "identifier")
+    //             .utf8_text(source)
+    //             .unwrap()
+    //             .to_string(),
+    //     );
+    // }
 
     let c = parameters.pop().unwrap();
 
@@ -341,6 +410,8 @@ fn parse_class(node: &Node, source: &[u8]) -> Class {
 
     let class_body = get_child_node_by_kind(node, "class_body");
 
+    // TODO: generate constant pool
+
     let unparsed_methods = get_child_nodes_by_kind(&class_body, "method_declaration");
 
     let mut methods = HashMap::new();
@@ -350,8 +421,6 @@ fn parse_class(node: &Node, source: &[u8]) -> Class {
 
         methods.insert(method_name, method);
     }
-
-    println!("{:?}", methods);
 
     Class {
         name,
@@ -369,29 +438,8 @@ pub fn parse_java_code_to_classes(code: String) -> Vec<Class> {
     let tree = parser.parse(&code, None).unwrap();
 
     pretty_print_tree(&tree.root_node());
-
-    // let code_block = get_child_node_by_kind(&get_child_node_by_kind(&get_child_node_by_kind(&tree.root_node().child(0).unwrap(), "class_body"), "method_declaration"), "block");
-    //
-    // pretty_print_tree(&code_block);
-
     println!();
 
-    let class_name = tree
-        .root_node()
-        .child(0)
-        .unwrap()
-        .child(1)
-        .unwrap()
-        .utf8_text(code.as_bytes())
-        .unwrap();
-
-    // println!("class name: {}", class_name);
-    // println!();
-
-    let n = tree.root_node().child(0).unwrap();
-    pretty_print_node_full(&n, code.as_bytes());
-
-    // Get all of the classes in the tree
     let mut classes = Vec::new();
 
     for i in 0..tree.root_node().child_count() {

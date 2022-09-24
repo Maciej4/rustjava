@@ -50,7 +50,7 @@ fn main() {
     // test_class("Main.class", "17");
     // test_class_set(vec!["ClassTest.class", "Point.class"], "90");
 
-    let code = include_str!("java_tests/Test.java");
+    let code = include_str!("java_tests/Add.java");
 
     let classes = javac::parse_java_code_to_classes(code.to_string());
 
