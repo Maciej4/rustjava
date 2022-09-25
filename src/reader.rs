@@ -11,14 +11,14 @@ pub struct Reader {
 
 impl Reader {
     /// Make a new reader for a passed file.
-    pub fn new(filename: String) -> Reader {
+    pub fn new(filename: String) -> Self {
         let filename_string = filename;
         let mut f = File::open(&filename_string).expect("no file found");
         let metadata = fs::metadata(&filename_string).expect("unable to read metadata");
         let mut buffer = vec![0; metadata.len() as usize];
         f.read_exact(&mut buffer).expect("buffer overflow");
 
-        Reader {
+        Self {
             bytes: buffer,
             index: 0,
         }
