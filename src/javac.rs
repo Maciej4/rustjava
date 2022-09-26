@@ -2,6 +2,7 @@ use crate::jvm::{Class, Method};
 use crate::{Instruction, Primitive, PrimitiveType};
 use std::collections::HashMap;
 use tree_sitter::{Node, Parser};
+use crate::java_class::ConstantPoolEntry;
 
 /// Iterate over a tree's nodes and print them.
 fn pretty_print_tree(root_node: &Node) {
@@ -125,9 +126,7 @@ fn parse_expression(node: &Node, source: &[u8], super_locals: &Vec<String>) -> V
             // TODO: need to get the method from the class and add it to the constant pool to invoke it
             instructions.push(Instruction::InvokeVirtual(0));
         }
-        _ => {
-            panic!("Unknown expression type {}", node.kind());
-        }
+        _ => panic!("Unknown expression type {}", node.kind()),
     }
 
     instructions
@@ -252,11 +251,11 @@ fn parse_code_block(node: &Node, source: &[u8], super_locals: Vec<String>) -> Ve
     instructions
 }
 
-fn parse_method_args(node: &Node, source: &[u8]) -> String {
+fn parse_method_args(node: &Node, source: &[u8]) -> (String, Vec<String>, Vec<PrimitiveType>) {
     let formal_parameters = get_child_node_by_kind(node, "formal_parameters");
 
     let mut parameters = String::new();
-    // let mut parameter_names = vec![];
+    let mut parameter_names = vec![];
     let mut parameter_types = vec![];
 
     parameters.push('(');
@@ -340,31 +339,27 @@ fn parse_method_args(node: &Node, source: &[u8]) -> String {
                 panic!("Unknown parameter type {}", parameter.kind());
             }
         }
-    }
 
-    // for i in 0..formal_params_to_parse.len() - 1 {
-    //     let parameter = match formal_params_to_parse.get(i).unwrap().kind() {
-    //         "integral_type" => formal_params_to_parse.get(i).unwrap().child(0).unwrap(),
-    //         "floating_point_type" => formal_params_to_parse.get(i).unwrap().child(0).unwrap(),
-    //         "boolean_type" => *formal_params_to_parse.get(i).unwrap(),
-    //         "void_type" => *formal_params_to_parse.get(i).unwrap(),
-    //         _ => {panic!("Unknown parameter type {}", formal_params_to_parse.get(i).unwrap().kind())}
-    //     };
-    //
-    //     parameter_names.push(
-    //         get_child_node_by_kind(&parameter, "identifier")
-    //             .utf8_text(source)
-    //             .unwrap()
-    //             .to_string(),
-    //     );
-    // }
+        if i < formal_params_to_parse.len() - 1 {
+            parameter_names.push(
+                parameter
+                    .parent()
+                    .unwrap()
+                    .child(1)
+                    .unwrap()
+                    .utf8_text(source)
+                    .unwrap()
+                    .to_string(),
+            );
+        }
+    }
 
     let c = parameters.pop().unwrap();
 
     parameters.push(')');
     parameters.push(c);
 
-    parameters
+    (parameters, parameter_names, parameter_types)
 }
 
 fn parse_method(node: &Node, source: &[u8]) -> (String, Method) {
@@ -373,12 +368,13 @@ fn parse_method(node: &Node, source: &[u8]) -> (String, Method) {
         .unwrap()
         .to_string();
 
-    method_name.push_str(parse_method_args(node, source).as_str());
+    let (parameters, parameter_names, _parameter_types) = parse_method_args(node, source);
+
+    method_name.push_str(parameters.as_str());
 
     let method_code_block = get_child_node_by_kind(node, "block");
 
-    // TODO: passed parameters should be added to the locals
-    let mut instructions = parse_code_block(&method_code_block, source, vec![]);
+    let mut instructions = parse_code_block(&method_code_block, source, parameter_names);
 
     let c = method_name.chars().last().unwrap();
 
@@ -402,32 +398,86 @@ fn parse_method(node: &Node, source: &[u8]) -> (String, Method) {
     (method_name, method)
 }
 
+fn parse_method_signature(node: &Node, source: &[u8]) -> (String, Vec<String>, Vec<PrimitiveType>) {
+    let mut method_name = get_child_node_by_kind(node, "identifier")
+        .utf8_text(source)
+        .unwrap()
+        .to_string();
+
+    let (parameters, parameter_names, parameter_types) = parse_method_args(node, source);
+
+    method_name.push_str(parameters.as_str());
+
+    (method_name, parameter_names, parameter_types)
+}
+
+fn find_invocations(root_node: &Node, source: &[u8], class: &mut Class) {
+    let mut stack = vec![*root_node];
+
+    let mut invocations = vec![];
+
+    while let Some(node) = stack.pop() {
+        match node.kind() {
+            "method_invocation" | "field_access" => {
+                // TODO: Handle "type_identifier" and remove repeated class names
+                invocations.push(node);
+            }
+            _ => {}
+        }
+
+        for i in 0..node.child_count() {
+            stack.push(node.child(i).unwrap());
+        }
+    }
+
+    println!("Found {} invocations: {:?}", invocations.len(), invocations);
+
+    for invoke in invocations {
+        println!();
+        pretty_print_node_full(&invoke, source);
+    }
+}
+
 fn parse_class(node: &Node, source: &[u8]) -> Class {
     let name = get_child_node_by_kind(node, "identifier")
         .utf8_text(source)
         .unwrap()
         .to_string();
 
-    let class_body = get_child_node_by_kind(node, "class_body");
-
-    // TODO: generate constant pool
-
-    let unparsed_methods = get_child_nodes_by_kind(&class_body, "method_declaration");
-
-    let mut methods = HashMap::new();
-
-    for method in unparsed_methods {
-        let (method_name, method) = parse_method(&method, source);
-
-        methods.insert(method_name, method);
-    }
-
-    Class {
+    let mut class = Class {
         name,
         constant_pool: vec![],
         static_fields: HashMap::new(),
-        methods,
+        methods: HashMap::new(),
+    };
+
+    find_invocations(node, source, &mut class);
+
+    let class_body = get_child_node_by_kind(node, "class_body");
+
+    let unparsed_methods = get_child_nodes_by_kind(&class_body, "method_declaration");
+
+    let mut method_signatures = vec![];
+    let mut method_param_names = vec![];
+    let mut method_param_types = vec![];
+
+    for method in unparsed_methods {
+        let (method_name, method_param_name, method_param_type) = parse_method_signature(&method, source);
+
+        let is_main = method_name == "main([Ljava/lang/String;)V";
+
+        method_signatures.push(method_name);
+        method_param_names.push(method_param_name);
+        method_param_types.push(method_param_type);
+
+        if is_main {
+            continue;
+        }
+
+
     }
+
+    class
 }
 
 pub fn parse_java_code_to_classes(code: String) -> Vec<Class> {
