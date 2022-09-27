@@ -1,8 +1,8 @@
+use crate::java_class::ConstantPoolEntry;
 use crate::jvm::{Class, Method};
 use crate::{Instruction, Primitive, PrimitiveType};
 use std::collections::HashMap;
 use tree_sitter::{Node, Parser};
-use crate::java_class::ConstantPoolEntry;
 
 /// Iterate over a tree's nodes and print them.
 fn pretty_print_tree(root_node: &Node) {
@@ -124,7 +124,47 @@ fn parse_expression(node: &Node, source: &[u8], super_locals: &Vec<String>) -> V
             }
 
             // TODO: need to get the method from the class and add it to the constant pool to invoke it
+
             instructions.push(Instruction::InvokeVirtual(0));
+        }
+        "object_creation_expression" => {
+            let class_name = get_child_node_by_kind(node, "type_identifier")
+                .utf8_text(source)
+                .unwrap();
+
+            // TODO: get the class constant pool index
+
+            instructions.push(Instruction::New(0));
+
+            let arguments = get_child_node_by_kind(node, "argument_list");
+
+            for i in 0..arguments.child_count() {
+                let argument = arguments.child(i).unwrap();
+
+                instructions.append(&mut parse_expression(&argument, source, super_locals));
+            }
+
+            // TODO: get the class init method constant pool index
+
+            instructions.push(Instruction::InvokeSpecial(0));
+        }
+        "field_access" => {
+            let class_or_object_name = node.child(0).unwrap().utf8_text(source).unwrap();
+            let field_name = node.child(2).unwrap().utf8_text(source).unwrap();
+
+            if super_locals.contains(&class_or_object_name.to_string()) {
+                // The field is of a non-static type, as it's name is in the local variables
+
+                // TODO: get the field constant pool index
+
+                instructions.push(Instruction::GetField(0));
+            } else {
+                // The field is of a static type
+
+                // TODO: get the static field constant pool index
+
+                instructions.push(Instruction::GetStatic(0));
+            }
         }
         _ => panic!("Unknown expression type {}", node.kind()),
     }
@@ -418,8 +458,7 @@ fn find_invocations(root_node: &Node, source: &[u8], class: &mut Class) {
 
     while let Some(node) = stack.pop() {
         match node.kind() {
-            "method_invocation" | "field_access" => {
-                // TODO: Handle "type_identifier" and remove repeated class names
+            "method_invocation" | "field_access" | "type_identifier" => {
                 invocations.push(node);
             }
             _ => {}
@@ -430,12 +469,43 @@ fn find_invocations(root_node: &Node, source: &[u8], class: &mut Class) {
         }
     }
 
+    invocations.reverse();
+
     println!("Found {} invocations: {:?}", invocations.len(), invocations);
 
-    for invoke in invocations {
+    for invoke in &invocations {
         println!();
-        pretty_print_node_full(&invoke, source);
+        pretty_print_node_full(invoke, source);
     }
+
+    let mut constant_pool = vec![];
+
+    // TODO: reserve the first n slots for the classes, methods, and fields
+
+    for access_node in invocations {
+        match access_node.kind() {
+            "type_identifier" => {
+                if access_node.parent().unwrap().kind() == "object_creation_expression" {
+                    let class_name = access_node.utf8_text(source).unwrap().to_string();
+
+                    constant_pool.push(ConstantPoolEntry::Class(constant_pool.len() as u16 + 2));
+
+                    constant_pool.push(ConstantPoolEntry::Utf8(class_name));
+                } else {
+                    // Implement this
+                }
+            }
+            "field_access" => {
+                // Implement this
+            }
+            "method_invocation" => {
+                // Implement this
+            }
+            _ => {}
+        }
+    }
+
+    class.constant_pool = constant_pool;
 }
 
 fn parse_class(node: &Node, source: &[u8]) -> Class {
@@ -457,25 +527,15 @@ fn parse_class(node: &Node, source: &[u8]) -> Class {
 
     let unparsed_methods = get_child_nodes_by_kind(&class_body, "method_declaration");
 
-    let mut method_signatures = vec![];
-    let mut method_param_names = vec![];
-    let mut method_param_types = vec![];
+    let mut methods = HashMap::new();
 
     for method in unparsed_methods {
-        let (method_name, method_param_name, method_param_type) = parse_method_signature(&method, source);
+        let (method_name, method) = parse_method(&method, source);
 
-        let is_main = method_name == "main([Ljava/lang/String;)V";
-
-        method_signatures.push(method_name);
-        method_param_names.push(method_param_name);
-        method_param_types.push(method_param_type);
-
-        if is_main {
-            continue;
-        }
-
-
+        methods.insert(method_name, method);
     }
+
+    class.methods = methods;
 
     class
 }

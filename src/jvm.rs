@@ -354,6 +354,8 @@ impl Jvm {
 
                     curr_sf.stack.push(value);
                 } else {
+                    // TODO: handle the case where the static field is not found
+
                     // println!("Unable to find static field {}/{} : {}", class_name, field_name, _field_type);
                 }
             }
