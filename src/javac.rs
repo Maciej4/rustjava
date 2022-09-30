@@ -438,17 +438,93 @@ fn parse_method(node: &Node, source: &[u8]) -> (String, Method) {
     (method_name, method)
 }
 
-fn parse_method_signature(node: &Node, source: &[u8]) -> (String, Vec<String>, Vec<PrimitiveType>) {
-    let mut method_name = get_child_node_by_kind(node, "identifier")
-        .utf8_text(source)
-        .unwrap()
-        .to_string();
+fn find_or_add_utf8(constant_pool: &mut Vec<ConstantPoolEntry>, value: &str) -> u16 {
+    let index = ConstantPoolEntry::find_utf8(&constant_pool[..], value);
 
-    let (parameters, parameter_names, parameter_types) = parse_method_args(node, source);
+    if index == 0 {
+        constant_pool.push(ConstantPoolEntry::Utf8(value.to_string()));
+        return constant_pool.len() as u16 + 1;
+    }
 
-    method_name.push_str(parameters.as_str());
+    index
+}
 
-    (method_name, parameter_names, parameter_types)
+fn find_or_add_class(constant_pool: &mut Vec<ConstantPoolEntry>, class_name: &str) -> u16 {
+    let index = ConstantPoolEntry::find_class(&constant_pool[..], class_name);
+
+    if index == 0 {
+        let class_name_index = find_or_add_utf8(constant_pool, class_name);
+
+        constant_pool.push(ConstantPoolEntry::Class(class_name_index))
+    }
+
+    index
+}
+
+fn find_or_add_name_and_type(
+    constant_pool: &mut Vec<ConstantPoolEntry>,
+    name: &str,
+    descriptor: &str,
+) -> u16 {
+    let index = ConstantPoolEntry::find_name_and_type(&constant_pool[..], name, descriptor);
+
+    if index == 0 {
+        let name_index = find_or_add_utf8(constant_pool, name);
+        let descriptor_index = find_or_add_utf8(constant_pool, descriptor);
+
+        constant_pool.push(ConstantPoolEntry::NameAndType(name_index, descriptor_index));
+    }
+
+    index
+}
+
+fn find_or_add_method_ref(
+    constant_pool: &mut Vec<ConstantPoolEntry>,
+    class_name: &str,
+    method_name: &str,
+    method_type: &str,
+) -> u16 {
+    let index = ConstantPoolEntry::find_method_ref(
+        &constant_pool[..],
+        class_name,
+        method_name,
+        method_type,
+    );
+
+    if index == 0 {
+        let class_index = find_or_add_class(constant_pool, class_name);
+        let name_and_type_index =
+            find_or_add_name_and_type(constant_pool, method_name, method_type);
+
+        constant_pool.push(ConstantPoolEntry::MethodRef(
+            class_index,
+            name_and_type_index,
+        ))
+    }
+
+    index
+}
+
+fn find_or_add_field_ref(
+    constant_pool: &mut Vec<ConstantPoolEntry>,
+    class_name: &str,
+    field_name: &str,
+    field_type: &str,
+) -> u16 {
+    let index =
+        ConstantPoolEntry::find_field_ref(&constant_pool[..], class_name, field_name, field_type);
+
+    if index == 0 {
+        let class_index = find_or_add_class(constant_pool, class_name);
+        let name_and_type_index = find_or_add_name_and_type(constant_pool, field_name, field_type);
+
+        constant_pool.push(ConstantPoolEntry::FieldRef(
+            class_index,
+            name_and_type_index,
+        ))
+    }
+
+    index
 }
 
 fn find_invocations(root_node: &Node, source: &[u8], class: &mut Class) {
@@ -456,10 +532,29 @@ fn find_invocations(root_node: &Node, source: &[u8], class: &mut Class) {
 
     let mut invocations = vec![];
 
+    let mut param_names_and_types = HashMap::new();
+
     while let Some(node) = stack.pop() {
         match node.kind() {
-            "method_invocation" | "field_access" | "type_identifier" => {
+            "method_invocation" | "field_access" => {
                 invocations.push(node);
+            }
+            "type_identifier" => {
+                invocations.push(node);
+
+                let mut name_node = node.parent().unwrap();
+
+                while name_node.kind() == "array_type" {
+                    name_node = name_node.parent().unwrap();
+                }
+
+                name_node = get_child_node_by_kind(&name_node, "identifier");
+
+                let name = name_node.utf8_text(source).unwrap().to_string();
+
+                let var_type = node.utf8_text(source).unwrap().to_string();
+
+                param_names_and_types.insert(name, var_type);
             }
             _ => {}
         }
@@ -471,12 +566,25 @@ fn find_invocations(root_node: &Node, source: &[u8], class: &mut Class) {
 
     invocations.reverse();
 
-    println!("Found {} invocations: {:?}", invocations.len(), invocations);
+    println!(
+        "Found {} invocations: {:?}",
+        invocations.len(),
+        invocations
+            .iter()
+            .map(|n| n.utf8_text(source).unwrap())
+            .collect::<Vec<&str>>()
+    );
 
-    for invoke in &invocations {
-        println!();
-        pretty_print_node_full(invoke, source);
-    }
+    // for invoke in &invocations {
+    //     println!();
+    //     pretty_print_node_full(invoke, source);
+    // }
+
+    println!(
+        "Found {} param names and types: {:?}",
+        param_names_and_types.len(),
+        param_names_and_types
+    );
 
     let mut constant_pool = vec![];
 
@@ -488,15 +596,64 @@ fn find_invocations(root_node: &Node, source: &[u8], class: &mut Class) {
                 if access_node.parent().unwrap().kind() == "object_creation_expression" {
                     let class_name = access_node.utf8_text(source).unwrap().to_string();
 
-                    constant_pool.push(ConstantPoolEntry::Class(constant_pool.len() as u16 + 2));
+                    let class_index = ConstantPoolEntry::find_class(&constant_pool, &class_name);
+
+                    // TODO: this should add the class initialization method
+                } else {
+                    let class_name = access_node.utf8_text(source).unwrap().to_string();
+
+                    let class_index = constant_pool.len() as u16 + 2;
+
+                    constant_pool.push(ConstantPoolEntry::Class(class_index));
 
                     constant_pool.push(ConstantPoolEntry::Utf8(class_name));
-                } else {
-                    // Implement this
                 }
             }
             "field_access" => {
-                // Implement this
+                let class_or_object_name = access_node
+                    .child(0)
+                    .unwrap()
+                    .utf8_text(source)
+                    .unwrap()
+                    .to_string();
+
+                let field_name = access_node
+                    .child(2)
+                    .unwrap()
+                    .utf8_text(source)
+                    .unwrap()
+                    .to_string();
+
+                let class_index =
+                    ConstantPoolEntry::find_class(&constant_pool, &class_or_object_name);
+
+                if class_index == 0 {
+                    let object_type = param_names_and_types.get(&class_or_object_name).unwrap();
+
+                    // let name_index = find_or_add_utf8(&mut constant_pool, &field_name);
+
+                    println!(
+                        "Could not find class {}, it is likely an instance of an object",
+                        class_or_object_name
+                    );
+                    continue;
+                }
+
+                let name_and_type_index = ConstantPoolEntry::find_name_and_type(
+                    &constant_pool,
+                    &field_name,
+                    param_names_and_types.get(&class_or_object_name).unwrap(),
+                );
+
+                if name_and_type_index == 0 {
+                    let name_index = find_or_add_utf8(&mut constant_pool, &field_name);
+
+                    let type_index = find_or_add_utf8(&mut constant_pool, &class_or_object_name);
+
+                    constant_pool.push(ConstantPoolEntry::NameAndType(name_index, type_index));
+
+                    continue;
+                }
             }
             "method_invocation" => {
                 // Implement this
