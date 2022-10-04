@@ -52,9 +52,18 @@ fn main() {
 
     let code = include_str!("java_tests/ClassTest.java");
 
-    let classes = javac::parse_java_code_to_classes(code.to_string());
+    let mut classes = javac::parse_java_code_to_classes(code.to_string());
+
+    classes.push(class_file_parser::parse_file_to_class(
+        ".\\src\\java_tests\\Point.class".to_string(),
+    ));
+
+    println!();
+    println!("jvm has classes: {:?}", classes);
 
     let mut jvm = jvm::Jvm::new(classes);
+
+    println!();
 
     jvm.run();
 }

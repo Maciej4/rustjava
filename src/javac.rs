@@ -71,7 +71,12 @@ fn get_child_nodes_by_kind<'a>(node: &tree_sitter::Node<'a>, kind: &str) -> Vec<
     nodes
 }
 
-fn parse_expression(node: &Node, source: &[u8], super_locals: &Vec<String>) -> Vec<Instruction> {
+fn parse_expression(
+    node: &Node,
+    source: &[u8],
+    super_locals: &Vec<String>,
+    constant_pool: &[ConstantPoolEntry],
+) -> Vec<Instruction> {
     let mut instructions = vec![];
 
     match node.kind() {
@@ -99,8 +104,18 @@ fn parse_expression(node: &Node, source: &[u8], super_locals: &Vec<String>) -> V
             let left = node.child(0).unwrap();
             let right = node.child(2).unwrap();
 
-            instructions.append(&mut parse_expression(&left, source, super_locals));
-            instructions.append(&mut parse_expression(&right, source, super_locals));
+            instructions.append(&mut parse_expression(
+                &left,
+                source,
+                super_locals,
+                constant_pool,
+            ));
+            instructions.append(&mut parse_expression(
+                &right,
+                source,
+                super_locals,
+                constant_pool,
+            ));
 
             match node.child(1).unwrap().kind() {
                 "+" => instructions.push(Instruction::Add(PrimitiveType::Int)),
@@ -112,20 +127,49 @@ fn parse_expression(node: &Node, source: &[u8], super_locals: &Vec<String>) -> V
             }
         }
         "method_invocation" => {
-            let method_name = get_child_node_by_kind(node, "identifier")
-                .utf8_text(source)
-                .unwrap();
+            if node.child_count() < 3 {
+                // Do stuff
+                panic!("Method invocation not implemented for methods inside the same class");
+            }
+
+            let class_name = node.child(0).unwrap().utf8_text(source).unwrap();
+            let method_name = node.child(2).unwrap().utf8_text(source).unwrap();
             let arguments = get_child_node_by_kind(node, "argument_list");
 
             for i in 0..arguments.child_count() {
                 let argument = arguments.child(i).unwrap();
 
-                instructions.append(&mut parse_expression(&argument, source, super_locals));
+                instructions.append(&mut parse_expression(
+                    &argument,
+                    source,
+                    super_locals,
+                    constant_pool,
+                ));
             }
 
-            // TODO: need to get the method from the class and add it to the constant pool to invoke it
+            let arguments_count =
+                arguments.child_count() - 2 - get_child_nodes_by_kind(&arguments, ",").len();
 
-            instructions.push(Instruction::InvokeVirtual(0));
+            // TODO: Handle methods with non-integer return values
+            let method_type = format!("({})I", "I".repeat(arguments_count));
+
+            let mut method_index = ConstantPoolEntry::find_method_ref(
+                constant_pool,
+                class_name,
+                method_name,
+                method_type.as_str(),
+            );
+
+            if method_index == 0 {
+                method_index = ConstantPoolEntry::find_method_ref(
+                    constant_pool,
+                    "java/io/PrintStream",
+                    "println",
+                    "(I)V",
+                );
+            }
+
+            instructions.push(Instruction::InvokeVirtual(method_index as usize));
         }
         "object_creation_expression" => {
             let class_name = get_child_node_by_kind(node, "type_identifier")
@@ -141,7 +185,12 @@ fn parse_expression(node: &Node, source: &[u8], super_locals: &Vec<String>) -> V
             for i in 0..arguments.child_count() {
                 let argument = arguments.child(i).unwrap();
 
-                instructions.append(&mut parse_expression(&argument, source, super_locals));
+                instructions.append(&mut parse_expression(
+                    &argument,
+                    source,
+                    super_locals,
+                    constant_pool,
+                ));
             }
 
             // TODO: get the class init method constant pool index
@@ -172,7 +221,12 @@ fn parse_expression(node: &Node, source: &[u8], super_locals: &Vec<String>) -> V
     instructions
 }
 
-fn parse_code_block(node: &Node, source: &[u8], super_locals: Vec<String>) -> Vec<Instruction> {
+fn parse_code_block(
+    node: &Node,
+    source: &[u8],
+    super_locals: Vec<String>,
+    constant_pool: &[ConstantPoolEntry],
+) -> Vec<Instruction> {
     let mut instructions = vec![];
     let mut locals = super_locals;
 
@@ -193,6 +247,7 @@ fn parse_code_block(node: &Node, source: &[u8], super_locals: Vec<String>) -> Ve
                         &variable_declarator.child(2).unwrap(),
                         source,
                         &locals,
+                        constant_pool,
                     ));
 
                     instructions.push(Instruction::Store(locals.len(), PrimitiveType::Int));
@@ -212,6 +267,7 @@ fn parse_code_block(node: &Node, source: &[u8], super_locals: Vec<String>) -> Ve
                                         &expression.child(2).unwrap(),
                                         source,
                                         &locals,
+                                        constant_pool,
                                     ));
                                     instructions.push(Instruction::Store(
                                         locals
@@ -232,11 +288,13 @@ fn parse_code_block(node: &Node, source: &[u8], super_locals: Vec<String>) -> Ve
                                         &expression.child(0).unwrap(),
                                         source,
                                         &locals,
+                                        constant_pool,
                                     ));
                                     instructions.append(&mut parse_expression(
                                         &expression.child(2).unwrap(),
                                         source,
                                         &locals,
+                                        constant_pool,
                                     ));
                                     instructions.push(Instruction::Add(PrimitiveType::Int));
                                     instructions.push(Instruction::Store(
@@ -270,6 +328,7 @@ fn parse_code_block(node: &Node, source: &[u8], super_locals: Vec<String>) -> Ve
                             ),
                             source,
                             &locals,
+                            constant_pool,
                         ));
                     }
                     _ => {}
@@ -280,6 +339,7 @@ fn parse_code_block(node: &Node, source: &[u8], super_locals: Vec<String>) -> Ve
                     &child.child(1).unwrap(),
                     source,
                     &locals,
+                    constant_pool,
                 ));
                 // This is handled by the caller
                 // instructions.push(Instruction::Return(PrimitiveType::Int));
@@ -402,7 +462,11 @@ fn parse_method_args(node: &Node, source: &[u8]) -> (String, Vec<String>, Vec<Pr
     (parameters, parameter_names, parameter_types)
 }
 
-fn parse_method(node: &Node, source: &[u8]) -> (String, Method) {
+fn parse_method(
+    node: &Node,
+    source: &[u8],
+    constant_pool: &[ConstantPoolEntry],
+) -> (String, Method) {
     let mut method_name = get_child_node_by_kind(node, "identifier")
         .utf8_text(source)
         .unwrap()
@@ -414,7 +478,8 @@ fn parse_method(node: &Node, source: &[u8]) -> (String, Method) {
 
     let method_code_block = get_child_node_by_kind(node, "block");
 
-    let mut instructions = parse_code_block(&method_code_block, source, parameter_names);
+    let mut instructions =
+        parse_code_block(&method_code_block, source, parameter_names, constant_pool);
 
     let c = method_name.chars().last().unwrap();
 
@@ -655,7 +720,81 @@ fn find_invocations(root_node: &Node, source: &[u8], class: &mut Class) {
                 }
             }
             "method_invocation" => {
-                // Implement this
+                // TODO: actually find the method signature
+
+                if access_node.child_count() < 3 {
+                    let method_name = access_node
+                        .child(0)
+                        .unwrap()
+                        .utf8_text(source)
+                        .unwrap()
+                        .to_string();
+
+                    let method_args = get_child_node_by_kind(&access_node, "argument_list");
+                    let method_arg_count = method_args.child_count()
+                        - get_child_nodes_by_kind(&method_args, ",").len()
+                        - 2;
+                    let method_type = format!("({})I", "I".repeat(method_arg_count));
+
+                    let _method_index = find_or_add_method_ref(
+                        &mut constant_pool,
+                        &class.name,
+                        &method_name,
+                        &method_type,
+                    );
+
+                    continue;
+                }
+
+                let class_or_object_name = access_node
+                    .child(0)
+                    .unwrap()
+                    .utf8_text(source)
+                    .unwrap()
+                    .to_string();
+
+                let method_name = access_node
+                    .child(2)
+                    .unwrap()
+                    .utf8_text(source)
+                    .unwrap()
+                    .to_string();
+
+                let method_args = get_child_node_by_kind(&access_node, "argument_list");
+                let method_arg_count = method_args.child_count()
+                    - get_child_nodes_by_kind(&method_args, ",").len()
+                    - 2;
+                let method_type = format!("({})I", "I".repeat(method_arg_count));
+
+                // TODO: remove this
+                if method_name == "println" {
+                    let _method_index = find_or_add_method_ref(
+                        &mut constant_pool,
+                        "java/io/PrintStream",
+                        &method_name,
+                        "(I)V",
+                    );
+
+                    continue;
+                }
+
+                if param_names_and_types.contains_key(&class_or_object_name) {
+                    let class_type = param_names_and_types.get(&class_or_object_name).unwrap();
+
+                    let _method_index = find_or_add_method_ref(
+                        &mut constant_pool,
+                        class_type,
+                        &method_name,
+                        &method_type,
+                    );
+                } else {
+                    let _method_index = find_or_add_method_ref(
+                        &mut constant_pool,
+                        &class_or_object_name,
+                        &method_name,
+                        &method_type,
+                    );
+                }
             }
             _ => {}
         }
@@ -686,7 +825,7 @@ fn parse_class(node: &Node, source: &[u8]) -> Class {
     let mut methods = HashMap::new();
 
     for method in unparsed_methods {
-        let (method_name, method) = parse_method(&method, source);
+        let (method_name, method) = parse_method(&method, source, &class.constant_pool);
 
         methods.insert(method_name, method);
     }
@@ -716,7 +855,7 @@ pub fn parse_java_code_to_classes(code: String) -> Vec<Class> {
         }
     }
 
-    println!("classes: {:?}", classes);
+    println!("parsed classes: {:?}", classes);
 
     classes
 }
