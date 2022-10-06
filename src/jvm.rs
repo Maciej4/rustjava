@@ -133,11 +133,12 @@ impl Jvm {
             return;
         }
 
-        // println!("stack: {:?}", curr_sf.stack);
-        // println!("arrays: {:?}", curr_sf.arrays);
-        // println!("locals: {:?}", curr_sf.locals);
-        // println!("heap: {:?}", self.heap);
-        // println!("{} | {:?}\n", curr_sf.pc, instruction);
+        // let indent = " ".repeat(current_stack_frame_index * 2);
+        // println!("{}stack: {:?}", indent, curr_sf.stack);
+        // println!("{}arrays: {:?}", indent, curr_sf.arrays);
+        // println!("{}locals: {:?}", indent, curr_sf.locals);
+        // println!("{}heap: {:?}", indent, self.heap);
+        // println!("{}{} | {:?}\n", indent, curr_sf.pc, instruction);
 
         match instruction {
             Instruction::Nop => {}

@@ -107,6 +107,18 @@ impl ConstantPoolEntry {
 
     // TODO: make this less awful
 
+    pub fn find_utf8(constant_pool: &[ConstantPoolEntry], utf8: &str) -> u16 {
+        for (i, entry) in constant_pool.iter().enumerate() {
+            if let ConstantPoolEntry::Utf8(s) = entry {
+                if s == utf8 {
+                    return i as u16 + 1;
+                }
+            }
+        }
+
+        0
+    }
+
     pub fn find_class(constant_pool: &[ConstantPoolEntry], class_name: &str) -> u16 {
         for (i, entry) in constant_pool.iter().enumerate() {
             if let ConstantPoolEntry::Class(index) = entry {
@@ -121,31 +133,43 @@ impl ConstantPoolEntry {
         0
     }
 
+    pub fn find_name_and_type(
+        constant_pool: &[ConstantPoolEntry],
+        name: &str,
+        descriptor: &str,
+    ) -> u16 {
+        let name_index = ConstantPoolEntry::find_utf8(constant_pool, name);
+        let type_index = ConstantPoolEntry::find_utf8(constant_pool, descriptor);
+
+        for (i, entry) in constant_pool.iter().enumerate() {
+            if let ConstantPoolEntry::NameAndType(n, t) = entry {
+                if *n == name_index && *t == type_index {
+                    return i as u16 + 1;
+                }
+            }
+        }
+
+        0
+    }
+
     pub fn find_method_ref(
         constant_pool: &[ConstantPoolEntry],
         class_name: &str,
         method_name: &str,
         method_type: &str,
     ) -> u16 {
+        let class_index = ConstantPoolEntry::find_class(constant_pool, class_name);
+        let name_and_type_index =
+            ConstantPoolEntry::find_name_and_type(constant_pool, method_name, method_type);
+
+        if class_index == 0 || name_and_type_index == 0 {
+            return 0;
+        }
+
         for (i, entry) in constant_pool.iter().enumerate() {
-            if let ConstantPoolEntry::MethodRef(class_index, name_and_type_index) = entry {
-                if let ConstantPoolEntry::Utf8(name) =
-                    &constant_pool[*name_and_type_index as usize - 1]
-                {
-                    if let ConstantPoolEntry::Utf8(descriptor) =
-                        &constant_pool[*name_and_type_index as usize - 1]
-                    {
-                        if let ConstantPoolEntry::Utf8(class) =
-                            &constant_pool[*class_index as usize - 1]
-                        {
-                            if name == method_name
-                                && descriptor == method_type
-                                && class == class_name
-                            {
-                                return i as u16 + 1;
-                            }
-                        }
-                    }
+            if let ConstantPoolEntry::MethodRef(c, n) = entry {
+                if *c == class_index && *n == name_and_type_index {
+                    return i as u16 + 1;
                 }
             }
         }
@@ -159,58 +183,17 @@ impl ConstantPoolEntry {
         field_name: &str,
         field_type: &str,
     ) -> u16 {
-        for (i, entry) in constant_pool.iter().enumerate() {
-            if let ConstantPoolEntry::FieldRef(class_index, name_and_type_index) = entry {
-                if let ConstantPoolEntry::Utf8(name) =
-                    &constant_pool[*name_and_type_index as usize - 1]
-                {
-                    if let ConstantPoolEntry::Utf8(descriptor) =
-                        &constant_pool[*name_and_type_index as usize - 1]
-                    {
-                        if let ConstantPoolEntry::Utf8(class) =
-                            &constant_pool[*class_index as usize - 1]
-                        {
-                            if name == field_name && descriptor == field_type && class == class_name
-                            {
-                                return i as u16 + 1;
-                            }
-                        }
-                    }
-                }
-            }
+        let class_index = ConstantPoolEntry::find_class(constant_pool, class_name);
+        let name_and_type_index =
+            ConstantPoolEntry::find_name_and_type(constant_pool, field_name, field_type);
+
+        if class_index == 0 || name_and_type_index == 0 {
+            return 0;
         }
 
-        0
-    }
-
-    pub fn find_name_and_type(
-        constant_pool: &[ConstantPoolEntry],
-        name: &str,
-        descriptor: &str,
-    ) -> u16 {
         for (i, entry) in constant_pool.iter().enumerate() {
-            if let ConstantPoolEntry::NameAndType(name_index, descriptor_index) = entry {
-                if let ConstantPoolEntry::Utf8(name_string) =
-                    &constant_pool[*name_index as usize - 1]
-                {
-                    if let ConstantPoolEntry::Utf8(descriptor_string) =
-                        &constant_pool[*descriptor_index as usize - 1]
-                    {
-                        if name_string == name && descriptor_string == descriptor {
-                            return i as u16 + 1;
-                        }
-                    }
-                }
-            }
-        }
-
-        0
-    }
-
-    pub fn find_utf8(constant_pool: &[ConstantPoolEntry], utf8: &str) -> u16 {
-        for (i, entry) in constant_pool.iter().enumerate() {
-            if let ConstantPoolEntry::Utf8(s) = entry {
-                if s == utf8 {
+            if let ConstantPoolEntry::FieldRef(c, n) = entry {
+                if *c == class_index && *n == name_and_type_index {
                     return i as u16 + 1;
                 }
             }

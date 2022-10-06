@@ -1,5 +1,4 @@
 use crate::bytecode::*;
-use tree_sitter::Parser;
 
 mod bytecode;
 mod class_file_parser;
@@ -58,7 +57,6 @@ fn main() {
         ".\\src\\java_tests\\Point.class".to_string(),
     ));
 
-    println!();
     println!("jvm has classes: {:?}", classes);
 
     let mut jvm = jvm::Jvm::new(classes);
