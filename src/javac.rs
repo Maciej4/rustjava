@@ -138,6 +138,14 @@ fn parse_expression(
                 _ => panic!("Unknown operator {}", node.child(1).unwrap().kind()),
             }
         }
+        "parenthesized_expression" => {
+            instructions.append(&mut parse_expression(
+                &node.child(1).unwrap(),
+                source,
+                super_locals,
+                constant_pool,
+            ));
+        }
         "method_invocation" => {
             if node.child_count() < 3 {
                 // Do stuff
@@ -946,8 +954,8 @@ pub fn parse_java_code_to_classes(code: String) -> Vec<Class> {
         .expect("Error loading Java grammar");
     let tree = parser.parse(&code, None).unwrap();
 
-    // pretty_print_tree(&tree.root_node());
-    // println!();
+    pretty_print_tree(&tree.root_node());
+    println!();
 
     let mut classes = Vec::new();
 

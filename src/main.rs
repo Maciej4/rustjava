@@ -46,16 +46,17 @@ fn main() {
     // test_class("Array.class", "10");
     // test_class("HelloWorld.class", "1");
     // test_class("If.class", "17");
+    // test_class("AdvancedIf.class", "17");
     // test_class("Main.class", "17");
     // test_class_set(vec!["ClassTest.class", "Point.class"], "90");
 
-    let code = include_str!("java_tests/ClassTest.java");
+    let code = include_str!("java_tests/AdvancedIf.java");
 
     let mut classes = javac::parse_java_code_to_classes(code.to_string());
 
-    classes.push(class_file_parser::parse_file_to_class(
-        ".\\src\\java_tests\\Point.class".to_string(),
-    ));
+    // classes.push(class_file_parser::parse_file_to_class(
+    //     ".\\src\\java_tests\\Point.class".to_string(),
+    // ));
 
     println!("jvm has classes: {:?}", classes);
 

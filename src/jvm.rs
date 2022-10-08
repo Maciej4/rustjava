@@ -91,16 +91,23 @@ impl Jvm {
     }
 
     pub fn run(&mut self) {
-        let method = self.class_area["Main"].methods["main([Ljava/lang/String;)V"].clone();
+        // Find the main method and push it onto the stack for execution
+        for class in self.class_area.values() {
+            if class.methods.contains_key("main([Ljava/lang/String;)V") {
+                let main_method = class.methods.get("main([Ljava/lang/String;)V").unwrap();
 
-        self.stack_frames.push(StackFrame {
-            pc: 0,
-            locals: Vec::new(),
-            arrays: Vec::new(),
-            stack: Vec::new(),
-            method,
-            class_name: "Main".to_string(),
-        });
+                let stack_frame = StackFrame {
+                    pc: 0,
+                    locals: Vec::new(),
+                    arrays: Vec::new(),
+                    stack: Vec::new(),
+                    method: main_method.clone(),
+                    class_name: class.name.clone(),
+                };
+
+                self.stack_frames.push(stack_frame);
+            }
+        }
 
         // Perform static initialization for all classes
         for class in self.class_area.values() {
