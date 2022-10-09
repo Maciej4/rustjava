@@ -2,6 +2,14 @@
 
 The goal of this project is to implement a small subset of the JVM in Rust to learn more about both the JVM and Rust.
 
+# Next Steps
+* [ ] Parse reasonably complex if statements
+* [ ] Re-implement the parser in a better way.
+  * Pre-search all java files for methods and parse their signatures. This will be useful for constant pool generation.
+  * Combine the constant pool generation and the parsing of the code into one pass. This will allow for the type checking to be shared between the two.
+  * Handle the parsing of sub blocks (if, for, while, etc...) in a better way.
+  * Add basic exception handling for compiler errors.
+
 # Current Features
 * [x] Class file parsing
 * [ ] Class file verification or any other kind of validation
