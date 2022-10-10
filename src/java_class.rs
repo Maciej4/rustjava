@@ -203,6 +203,155 @@ impl ConstantPoolEntry {
     }
 }
 
+pub trait ConstantPoolExt {
+    fn find_utf8(&self, utf8: &str) -> Option<u16>;
+    fn find_class(&self, class_name: &str) -> Option<u16>;
+    fn find_name_and_type(&self, name: &str, type_: &str) -> Option<u16>;
+    fn find_field_ref(&self, class_name: &str, name: &str, type_: &str) -> Option<u16>;
+    fn find_method_ref(&self, class_name: &str, name: &str, type_: &str) -> Option<u16>;
+    fn find_or_add_utf8(&mut self, value: &str) -> u16;
+    fn find_or_add_class(&mut self, name: &str) -> u16;
+    fn find_or_add_name_and_type(&mut self, name: &str, descriptor: &str) -> u16;
+    fn find_or_add_method_ref(&mut self, class_name: &str, name: &str, descriptor: &str) -> u16;
+    fn find_or_add_field_ref(&mut self, class_name: &str, name: &str, descriptor: &str) -> u16;
+}
+
+macro_rules! return_none_on_none {
+    ($e:expr) => {
+        match $e {
+            Some(v) => v,
+            None => return None,
+        }
+    };
+}
+
+impl ConstantPoolExt for Vec<ConstantPoolEntry> {
+    fn find_utf8(&self, utf8: &str) -> Option<u16> {
+        for (i, entry) in self.iter().enumerate() {
+            if let ConstantPoolEntry::Utf8(value) = entry {
+                if value == utf8 {
+                    return Some(i as u16 + 1);
+                }
+            }
+        }
+        None
+    }
+
+    fn find_class(&self, class_name: &str) -> Option<u16> {
+        let class_name_index = return_none_on_none!(self.find_utf8(class_name));
+        for (i, entry) in self.iter().enumerate() {
+            if let ConstantPoolEntry::Class(name_index) = entry {
+                if *name_index == class_name_index {
+                    return Some(i as u16 + 1);
+                }
+            }
+        }
+        None
+    }
+
+    fn find_name_and_type(&self, name: &str, descriptor: &str) -> Option<u16> {
+        let name_index = return_none_on_none!(self.find_utf8(name));
+        let type_index = return_none_on_none!(self.find_utf8(descriptor));
+        for (i, entry) in self.iter().enumerate() {
+            if let ConstantPoolEntry::NameAndType(n, t) = entry {
+                if *n == name_index && *t == type_index {
+                    return Some(i as u16 + 1);
+                }
+            }
+        }
+        None
+    }
+
+    fn find_field_ref(&self, class_name: &str, name: &str, descriptor: &str) -> Option<u16> {
+        let class_index = return_none_on_none!(self.find_class(class_name));
+        let name_and_type_index = return_none_on_none!(self.find_name_and_type(name, descriptor));
+        for (i, entry) in self.iter().enumerate() {
+            if let ConstantPoolEntry::FieldRef(c, n) = entry {
+                if *c == class_index && *n == name_and_type_index {
+                    return Some(i as u16 + 1);
+                }
+            }
+        }
+        None
+    }
+
+    fn find_method_ref(&self, class_name: &str, name: &str, descriptor: &str) -> Option<u16> {
+        let class_index = return_none_on_none!(self.find_class(class_name));
+        let name_and_type_index = return_none_on_none!(self.find_name_and_type(name, descriptor));
+        for (i, entry) in self.iter().enumerate() {
+            if let ConstantPoolEntry::MethodRef(c, n) = entry {
+                if *c == class_index && *n == name_and_type_index {
+                    return Some(i as u16 + 1);
+                }
+            }
+        }
+        None
+    }
+
+    fn find_or_add_utf8(&mut self, value: &str) -> u16 {
+        match self.find_utf8(value) {
+            Some(index) => index,
+            None => {
+                self.push(ConstantPoolEntry::Utf8(value.to_string()));
+                self.len() as u16
+            }
+        }
+    }
+
+    fn find_or_add_class(&mut self, name: &str) -> u16 {
+        match self.find_class(name) {
+            Some(index) => index,
+            None => {
+                let name_index = self.find_or_add_utf8(name);
+                self.push(ConstantPoolEntry::Class(name_index));
+                self.len() as u16
+            }
+        }
+    }
+
+    fn find_or_add_name_and_type(&mut self, name: &str, descriptor: &str) -> u16 {
+        match self.find_name_and_type(name, descriptor) {
+            Some(index) => index,
+            None => {
+                let name_index = self.find_or_add_utf8(name);
+                let descriptor_index = self.find_or_add_utf8(descriptor);
+                self.push(ConstantPoolEntry::NameAndType(name_index, descriptor_index));
+                self.len() as u16
+            }
+        }
+    }
+
+    fn find_or_add_method_ref(&mut self, class_name: &str, name: &str, descriptor: &str) -> u16 {
+        match self.find_method_ref(class_name, name, descriptor) {
+            Some(index) => index,
+            None => {
+                let class_index = self.find_or_add_class(class_name);
+                let name_and_type_index = self.find_or_add_name_and_type(name, descriptor);
+                self.push(ConstantPoolEntry::MethodRef(
+                    class_index,
+                    name_and_type_index,
+                ));
+                self.len() as u16
+            }
+        }
+    }
+
+    fn find_or_add_field_ref(&mut self, class_name: &str, name: &str, descriptor: &str) -> u16 {
+        match self.find_field_ref(class_name, name, descriptor) {
+            Some(index) => index,
+            None => {
+                let class_index = self.find_or_add_class(class_name);
+                let name_and_type_index = self.find_or_add_name_and_type(name, descriptor);
+                self.push(ConstantPoolEntry::FieldRef(
+                    class_index,
+                    name_and_type_index,
+                ));
+                self.len() as u16
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum ClassFlags {
     Public = 0x0001,

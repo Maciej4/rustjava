@@ -4,18 +4,6 @@ use crate::{Instruction, Primitive, PrimitiveType};
 use std::collections::HashMap;
 use tree_sitter::{Node, Parser};
 
-// This takes a kind of weird approach to parsing the java code. First, it goes through the class
-// file and finds all the invocations, static fields, object fields, and creates the constant pool
-// entries for them. Then it generates the bytecode for the methods. This is a flawed approach as
-// it doesn't take into account the types of the variables. It also isn't able to determine the
-// signature of the methods. Combining these two steps into one could be a better approach as the
-// constant pool generation could be done alongside the bytecode generation. Given that the
-// constant pool generator keeps track of the variables and their types, it could be used to
-// allow for better type checking. Method signatures could also be guessed. One issue with this
-// is the parsing of multiple classes which use methods from each other. Perhaps an array of
-// method (names and signatures) and field (names and types) could be generated first for each
-// class and then passed to the bytecode generator?
-
 /// Iterate over a tree's nodes and print them.
 fn pretty_print_tree(root_node: &Node) {
     let mut stack = vec![*root_node];
@@ -320,47 +308,6 @@ fn parse_expression(
             }
         }
         _ => panic!("Unknown expression type {}", node.kind()),
-    }
-
-    instructions
-}
-
-enum JumpTo {
-    Start,
-    End,
-}
-
-enum IfType {
-    If,
-    IfICmp,
-}
-
-struct IfToAdd {
-    jump_to: JumpTo,
-    if_type: IfType,
-    instruction_index: usize,
-}
-
-fn parse_if(
-    root_node: &Node,
-    source: &[u8],
-    super_locals: &Vec<String>,
-    constant_pool: &[ConstantPoolEntry],
-    code_block_length: usize,
-) -> Vec<Instruction> {
-    let mut instructions = Vec::new();
-    let mut if_to_add: Vec<IfToAdd> = Vec::new();
-
-    let mut stack = vec![*root_node];
-
-    while let Some(node) = stack.pop() {
-        for i in (0..node.child_count()).rev() {
-            let child = node.child(i).unwrap();
-
-            if child.kind() == "" {}
-
-            stack.push(child);
-        }
     }
 
     instructions
@@ -792,8 +739,6 @@ fn find_invocations(root_node: &Node, source: &[u8], class: &mut Class) {
                     continue;
                 }
 
-                // pretty_print_node_full(&name_node, source);
-
                 if name_node.kind() == "local_variable_declaration" {
                     name_node = get_child_node_by_kinds(
                         &name_node,
@@ -818,28 +763,9 @@ fn find_invocations(root_node: &Node, source: &[u8], class: &mut Class) {
 
     invocations.reverse();
 
-    // println!(
-    //     "Found {} invocations: {:?}",
-    //     invocations.len(),
-    //     invocations
-    //         .iter()
-    //         .map(|n| n.utf8_text(source).unwrap())
-    //         .collect::<Vec<&str>>()
-    // );
-
     let mut constant_pool = vec![];
 
-    // TODO: reserve the first n slots for the classes, methods, and fields
-
     for access_node in invocations {
-        // println!(
-        //     "Name: {:width$} | Kind: {:width$} | Constant pool: {:?}",
-        //     access_node.utf8_text(source).unwrap(),
-        //     access_node.kind(),
-        //     constant_pool,
-        //     width = 25
-        // );
-
         match access_node.kind() {
             "type_identifier" => {
                 let class_name = access_node.utf8_text(source).unwrap();

@@ -324,3 +324,19 @@ impl Primitive {
         }
     }
 }
+
+impl PrimitiveType {
+    pub fn as_letter(&self) -> char {
+        match self {
+            PrimitiveType::Null => 'V',
+            PrimitiveType::Byte => 'B',
+            PrimitiveType::Short => 'S',
+            PrimitiveType::Char => 'C',
+            PrimitiveType::Int => 'I',
+            PrimitiveType::Long => 'J',
+            PrimitiveType::Float => 'F',
+            PrimitiveType::Double => 'D',
+            PrimitiveType::Reference => 'R', // TODO: check if this is correct
+        }
+    }
+}
