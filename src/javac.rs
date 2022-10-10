@@ -83,6 +83,22 @@ fn get_child_nodes_by_kind<'a>(node: &tree_sitter::Node<'a>, kind: &str) -> Vec<
     nodes
 }
 
+fn recursive_count_nodes(node: &tree_sitter::Node, kind: &str) -> usize {
+    let mut count = 0;
+
+    for i in 0..node.child_count() {
+        let child = node.child(i).unwrap();
+
+        if child.kind() == kind {
+            count += 1;
+        }
+
+        count += recursive_count_nodes(&child, kind);
+    }
+
+    count
+}
+
 fn parse_expression(
     node: &Node,
     source: &[u8],
@@ -309,6 +325,47 @@ fn parse_expression(
     instructions
 }
 
+enum JumpTo {
+    Start,
+    End,
+}
+
+enum IfType {
+    If,
+    IfICmp,
+}
+
+struct IfToAdd {
+    jump_to: JumpTo,
+    if_type: IfType,
+    instruction_index: usize,
+}
+
+fn parse_if(
+    root_node: &Node,
+    source: &[u8],
+    super_locals: &Vec<String>,
+    constant_pool: &[ConstantPoolEntry],
+    code_block_length: usize,
+) -> Vec<Instruction> {
+    let mut instructions = Vec::new();
+    let mut if_to_add: Vec<IfToAdd> = Vec::new();
+
+    let mut stack = vec![*root_node];
+
+    while let Some(node) = stack.pop() {
+        for i in (0..node.child_count()).rev() {
+            let child = node.child(i).unwrap();
+
+            if child.kind() == "" {}
+
+            stack.push(child);
+        }
+    }
+
+    instructions
+}
+
 fn parse_code_block(
     node: &Node,
     source: &[u8],
@@ -432,6 +489,16 @@ fn parse_code_block(
                     }
                     _ => {}
                 }
+            }
+            "if_statement" => {
+                let block_instructions = parse_code_block(
+                    &get_child_node_by_kind(&child, "block"),
+                    source,
+                    locals.clone(),
+                    constant_pool,
+                );
+
+                let instruction_block_length = block_instructions.len();
             }
             "return_statement" => {
                 instructions.append(&mut parse_expression(

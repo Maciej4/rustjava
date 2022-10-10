@@ -4,6 +4,7 @@ mod bytecode;
 mod class_file_parser;
 mod java_class;
 mod javac;
+mod javac2;
 mod jvm;
 mod reader;
 
@@ -50,19 +51,16 @@ fn main() {
     // test_class("Main.class", "17");
     // test_class_set(vec!["ClassTest.class", "Point.class"], "90");
 
-    let code = include_str!("java_tests/AdvancedIf.java");
-
-    let mut classes = javac::parse_java_code_to_classes(code.to_string());
+    let code = include_str!("java_tests/Add.java");
+    // let mut classes = javac::parse_java_code_to_classes(code.to_string());
+    let mut classes = javac2::parse_to_class(code.to_string());
 
     // classes.push(class_file_parser::parse_file_to_class(
     //     ".\\src\\java_tests\\Point.class".to_string(),
     // ));
 
-    println!("jvm has classes: {:?}", classes);
-
-    let mut jvm = jvm::Jvm::new(classes);
-
-    println!();
-
-    jvm.run();
+    // println!("jvm has classes: {:?}", classes);
+    // let mut jvm = jvm::Jvm::new(classes);
+    // println!();
+    // jvm.run();
 }
