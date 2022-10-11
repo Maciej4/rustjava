@@ -107,6 +107,7 @@ pub enum PrimitiveType {
     Float,
     Double,
     Reference,
+    Boolean,
 }
 
 #[derive(Debug, Clone)]
@@ -336,7 +337,24 @@ impl PrimitiveType {
             PrimitiveType::Long => 'J',
             PrimitiveType::Float => 'F',
             PrimitiveType::Double => 'D',
-            PrimitiveType::Reference => 'R', // TODO: check if this is correct
+            PrimitiveType::Reference => 'R', // This is not a real java type
+            PrimitiveType::Boolean => 'Z',
         }
+    }
+
+    pub fn matches(&self, other: &PrimitiveType) -> bool {
+        matches!(
+            (self, other),
+            (PrimitiveType::Null, PrimitiveType::Null)
+                | (PrimitiveType::Byte, PrimitiveType::Byte)
+                | (PrimitiveType::Short, PrimitiveType::Short)
+                | (PrimitiveType::Char, PrimitiveType::Char)
+                | (PrimitiveType::Int, PrimitiveType::Int)
+                | (PrimitiveType::Long, PrimitiveType::Long)
+                | (PrimitiveType::Float, PrimitiveType::Float)
+                | (PrimitiveType::Double, PrimitiveType::Double)
+                | (PrimitiveType::Reference, PrimitiveType::Reference)
+                | (PrimitiveType::Boolean, PrimitiveType::Boolean)
+        )
     }
 }
