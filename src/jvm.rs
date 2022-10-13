@@ -1,4 +1,4 @@
-use crate::java_class::ConstantPoolEntry;
+use crate::java_class::{ConstantPoolEntry, ConstantPoolExt};
 use crate::{Instruction, Operator, Primitive, PrimitiveType};
 use std::collections::HashMap;
 
@@ -352,10 +352,10 @@ impl Jvm {
                 return;
             }
             Instruction::GetStatic(index) => {
-                let (class_name, field_name, _field_type) = ConstantPoolEntry::field_ref_parser(
-                    index,
-                    &self.class_area[&curr_sf.class_name].constant_pool[..],
-                );
+                let (class_name, field_name, _field_type) = self.class_area[&curr_sf.class_name]
+                    .constant_pool
+                    .field_ref_parser(&index)
+                    .unwrap();
 
                 if self.class_area.contains_key(&class_name) {
                     let value = self.class_area[&class_name].static_fields[&field_name].clone();
@@ -370,10 +370,10 @@ impl Jvm {
             Instruction::PutStatic(index) => {
                 let value = curr_sf.pop_primitive();
 
-                let (class_name, field_name, _field_type) = ConstantPoolEntry::field_ref_parser(
-                    index,
-                    &self.class_area[&curr_sf.class_name].constant_pool[..],
-                );
+                let (class_name, field_name, _field_type) = self.class_area[&curr_sf.class_name]
+                    .constant_pool
+                    .field_ref_parser(&index)
+                    .unwrap();
 
                 self.class_area
                     .get_mut(&class_name)
@@ -384,10 +384,10 @@ impl Jvm {
             Instruction::GetField(index) => {
                 let object = curr_sf.pop_ref();
 
-                let (_class_name, field_name, _field_type) = ConstantPoolEntry::field_ref_parser(
-                    index,
-                    &self.class_area[&curr_sf.class_name].constant_pool[..],
-                );
+                let (_class_name, field_name, _field_type) = self.class_area[&curr_sf.class_name]
+                    .constant_pool
+                    .field_ref_parser(&index)
+                    .unwrap();
 
                 let field = self.heap[object].fields.get(&field_name).unwrap();
 
@@ -397,20 +397,20 @@ impl Jvm {
                 let value = curr_sf.pop_primitive();
                 let reference = curr_sf.pop_ref();
 
-                let (_class_name, field_name, _field_type) = ConstantPoolEntry::field_ref_parser(
-                    index,
-                    &self.class_area[&curr_sf.class_name].constant_pool[..],
-                );
+                let (_class_name, field_name, _field_type) = self.class_area[&curr_sf.class_name]
+                    .constant_pool
+                    .field_ref_parser(&index)
+                    .unwrap();
 
                 self.heap[reference].fields.insert(field_name, value);
             }
             Instruction::InvokeVirtual(index) | Instruction::InvokeSpecial(index) => {
                 // TODO: May need to split into separate InvokeVirtual and InvokeSpecial implementations.
-                let (class_name, method_name, method_descriptor) =
-                    ConstantPoolEntry::method_ref_parser(
-                        index,
-                        &self.class_area[&curr_sf.class_name].constant_pool[..],
-                    );
+                let (class_name, method_name, method_descriptor) = self.class_area
+                    [&curr_sf.class_name]
+                    .constant_pool
+                    .method_ref_parser(&index)
+                    .unwrap();
 
                 if !self.class_area.contains_key(&class_name) {
                     // println!("Unable to find method {}/{} : {}", class_name, method_name, method_descriptor);
@@ -456,11 +456,11 @@ impl Jvm {
                 return;
             }
             Instruction::InvokeStatic(index) => {
-                let (class_name, method_name, method_descriptor) =
-                    ConstantPoolEntry::method_ref_parser(
-                        index,
-                        &self.class_area[&curr_sf.class_name].constant_pool[..],
-                    );
+                let (class_name, method_name, method_descriptor) = self.class_area
+                    [&curr_sf.class_name]
+                    .constant_pool
+                    .method_ref_parser(&index)
+                    .unwrap();
 
                 let method = self.class_area[&class_name].methods
                     [&format!("{}{}", method_name, method_descriptor)]
@@ -494,10 +494,10 @@ impl Jvm {
             // Instruction::InvokeInterface(index) => {}
             // Instruction::InvokeDynamic(index) => {}
             Instruction::New(index) => {
-                let class_name = ConstantPoolEntry::class_parser(
-                    index,
-                    &self.class_area[&curr_sf.class_name].constant_pool[..],
-                );
+                let class_name = self.class_area[&curr_sf.class_name]
+                    .constant_pool
+                    .class_parser(&index)
+                    .unwrap();
 
                 self.heap.push(Object {
                     class_name,

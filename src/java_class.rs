@@ -19,78 +19,7 @@ pub enum ConstantPoolEntry {
     InvokeDynamic(usize, usize),      // bootstrap_method_attr_index, name_and_type_index
 }
 
-// TODO: Re-write parsers into ConstantPoolExt
 impl ConstantPoolEntry {
-    pub fn class_parser(index: usize, constant_pool: &[ConstantPoolEntry]) -> String {
-        match &constant_pool[index - 1] {
-            ConstantPoolEntry::Class(index) => match &constant_pool[*index as usize - 1] {
-                ConstantPoolEntry::Utf8(s) => s.clone(),
-                _ => panic!("Invalid constant pool entry"),
-            },
-            _ => panic!("Invalid constant pool entry"),
-        }
-    }
-
-    pub fn name_and_type_parser(
-        index: usize,
-        constant_pool: &[ConstantPoolEntry],
-    ) -> (String, String) {
-        match &constant_pool[index - 1] {
-            ConstantPoolEntry::NameAndType(name_index, descriptor_index) => {
-                let name = match &constant_pool[*name_index as usize - 1] {
-                    ConstantPoolEntry::Utf8(name) => name.clone(),
-                    _ => panic!("Invalid constant pool entry"),
-                };
-                let descriptor = match &constant_pool[*descriptor_index as usize - 1] {
-                    ConstantPoolEntry::Utf8(descriptor) => descriptor.clone(),
-                    _ => panic!("Invalid constant pool entry"),
-                };
-                (name, descriptor)
-            }
-            _ => panic!("Invalid constant pool entry"),
-        }
-    }
-
-    pub fn method_ref_parser(
-        index: usize,
-        constant_pool: &[ConstantPoolEntry],
-    ) -> (String, String, String) {
-        match &constant_pool[index - 1] {
-            ConstantPoolEntry::MethodRef(class_index, name_and_type_index) => {
-                let class_name =
-                    ConstantPoolEntry::class_parser(*class_index as usize, constant_pool);
-
-                let (method_name, method_type) = ConstantPoolEntry::name_and_type_parser(
-                    *name_and_type_index as usize,
-                    constant_pool,
-                );
-
-                (class_name, method_name, method_type)
-            }
-            _ => panic!("Invalid constant pool entry"),
-        }
-    }
-
-    pub fn field_ref_parser(
-        index: usize,
-        constant_pool: &[ConstantPoolEntry],
-    ) -> (String, String, String) {
-        match &constant_pool[index - 1] {
-            ConstantPoolEntry::FieldRef(class_index, name_and_type_index) => {
-                let class_name =
-                    ConstantPoolEntry::class_parser(*class_index as usize, constant_pool);
-
-                let (method_name, method_type) = ConstantPoolEntry::name_and_type_parser(
-                    *name_and_type_index as usize,
-                    constant_pool,
-                );
-
-                (class_name, method_name, method_type)
-            }
-            _ => panic!("Invalid constant pool entry"),
-        }
-    }
-
     pub fn get_primitive(&self) -> Primitive {
         match self {
             ConstantPoolEntry::Integer(i) => Primitive::Int(*i),
@@ -117,6 +46,11 @@ pub trait ConstantPoolExt {
     fn find_or_add_name_and_type(&mut self, name: &str, descriptor: &str) -> usize;
     fn find_or_add_method_ref(&mut self, class_name: &str, name: &str, descriptor: &str) -> usize;
     fn find_or_add_field_ref(&mut self, class_name: &str, name: &str, descriptor: &str) -> usize;
+    fn utf8_parser(&self, index: &usize) -> Option<String>;
+    fn class_parser(&self, index: &usize) -> Option<String>;
+    fn name_and_type_parser(&self, index: &usize) -> Option<(String, String)>;
+    fn method_ref_parser(&self, index: &usize) -> Option<(String, String, String)>;
+    fn field_ref_parser(&self, index: &usize) -> Option<(String, String, String)>;
 }
 
 impl ConstantPoolExt for Vec<ConstantPoolEntry> {
@@ -243,6 +177,51 @@ impl ConstantPoolExt for Vec<ConstantPoolEntry> {
                 self.len()
             }
         }
+    }
+
+    fn utf8_parser(&self, index: &usize) -> Option<String> {
+        if let ConstantPoolEntry::Utf8(value) = &self[index - 1] {
+            return Some(value.clone());
+        }
+        None
+    }
+
+    fn class_parser(&self, index: &usize) -> Option<String> {
+        if let ConstantPoolEntry::Class(name_index) = self.get(index - 1)? {
+            return self.utf8_parser(name_index);
+        }
+        None
+    }
+
+    fn name_and_type_parser(&self, index: &usize) -> Option<(String, String)> {
+        if let ConstantPoolEntry::NameAndType(name_index, type_index) = self.get(index - 1)? {
+            let name = self.utf8_parser(name_index)?;
+            let descriptor = self.utf8_parser(type_index)?;
+            return Some((name, descriptor));
+        }
+        None
+    }
+
+    fn method_ref_parser(&self, index: &usize) -> Option<(String, String, String)> {
+        if let ConstantPoolEntry::MethodRef(class_index, name_and_type_index) =
+            self.get(index - 1)?
+        {
+            let class_name = self.class_parser(class_index)?;
+            let (name, descriptor) = self.name_and_type_parser(name_and_type_index)?;
+            return Some((class_name, name, descriptor));
+        }
+        None
+    }
+
+    fn field_ref_parser(&self, index: &usize) -> Option<(String, String, String)> {
+        if let ConstantPoolEntry::FieldRef(class_index, name_and_type_index) =
+            self.get(index - 1)?
+        {
+            let class_name = self.class_parser(class_index)?;
+            let (name, descriptor) = self.name_and_type_parser(name_and_type_index)?;
+            return Some((class_name, name, descriptor));
+        }
+        None
     }
 }
 
