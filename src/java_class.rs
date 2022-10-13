@@ -1,7 +1,6 @@
 //! This module contains the data structures used to represent java classes.
 use crate::Primitive;
 
-// TODO: indexes in the constant pool should be usize rather than u16
 #[derive(Debug, Clone)]
 pub enum ConstantPoolEntry {
     Utf8(String),
@@ -9,17 +8,18 @@ pub enum ConstantPoolEntry {
     Float(f32),
     Long(i64),
     Double(f64),
-    Class(u16),
-    String(u16),
-    FieldRef(u16, u16),
-    MethodRef(u16, u16),
-    InterfaceMethodRef(u16, u16),
-    NameAndType(u16, u16),
-    MethodHandle(u8, u16),
-    MethodType(u16),
-    InvokeDynamic(u16, u16),
+    Class(usize),                     // name_index
+    String(usize),                    // string_index
+    FieldRef(usize, usize),           // class_index, name_and_type_index
+    MethodRef(usize, usize),          // class_index, name_and_type_index
+    InterfaceMethodRef(usize, usize), // class_index, name_and_type_index
+    NameAndType(usize, usize),        // name_index, descriptor_index
+    MethodHandle(u8, usize),          // reference_kind, reference_index
+    MethodType(usize),                // descriptor_index
+    InvokeDynamic(usize, usize),      // bootstrap_method_attr_index, name_and_type_index
 }
 
+// TODO: Re-write parsers into ConstantPoolExt
 impl ConstantPoolEntry {
     pub fn class_parser(index: usize, constant_pool: &[ConstantPoolEntry]) -> String {
         match &constant_pool[index - 1] {
@@ -97,231 +97,125 @@ impl ConstantPoolEntry {
             ConstantPoolEntry::Float(f) => Primitive::Float(*f),
             ConstantPoolEntry::Long(l) => Primitive::Long(*l),
             ConstantPoolEntry::Double(d) => Primitive::Double(*d),
-            ConstantPoolEntry::Class(r) => Primitive::Reference(*r as usize),
-            ConstantPoolEntry::String(r) => Primitive::Reference(*r as usize), // TODO: this may be wrong
-            ConstantPoolEntry::MethodHandle(_, r) => Primitive::Reference(*r as usize),
-            ConstantPoolEntry::MethodType(r) => Primitive::Reference(*r as usize),
+            ConstantPoolEntry::Class(r) => Primitive::Reference(*r),
+            ConstantPoolEntry::String(r) => Primitive::Reference(*r), // TODO: this may be wrong
+            ConstantPoolEntry::MethodHandle(_, r) => Primitive::Reference(*r),
+            ConstantPoolEntry::MethodType(r) => Primitive::Reference(*r),
             _ => panic!("Unable to convert constant pool entry to loadable primitive"),
         }
-    }
-
-    // TODO: make this less awful
-
-    pub fn find_utf8(constant_pool: &[ConstantPoolEntry], utf8: &str) -> u16 {
-        for (i, entry) in constant_pool.iter().enumerate() {
-            if let ConstantPoolEntry::Utf8(s) = entry {
-                if s == utf8 {
-                    return i as u16 + 1;
-                }
-            }
-        }
-
-        0
-    }
-
-    pub fn find_class(constant_pool: &[ConstantPoolEntry], class_name: &str) -> u16 {
-        for (i, entry) in constant_pool.iter().enumerate() {
-            if let ConstantPoolEntry::Class(index) = entry {
-                if let ConstantPoolEntry::Utf8(name) = &constant_pool[*index as usize - 1] {
-                    if name == class_name {
-                        return i as u16 + 1;
-                    }
-                }
-            }
-        }
-
-        0
-    }
-
-    pub fn find_name_and_type(
-        constant_pool: &[ConstantPoolEntry],
-        name: &str,
-        descriptor: &str,
-    ) -> u16 {
-        let name_index = ConstantPoolEntry::find_utf8(constant_pool, name);
-        let type_index = ConstantPoolEntry::find_utf8(constant_pool, descriptor);
-
-        for (i, entry) in constant_pool.iter().enumerate() {
-            if let ConstantPoolEntry::NameAndType(n, t) = entry {
-                if *n == name_index && *t == type_index {
-                    return i as u16 + 1;
-                }
-            }
-        }
-
-        0
-    }
-
-    pub fn find_method_ref(
-        constant_pool: &[ConstantPoolEntry],
-        class_name: &str,
-        method_name: &str,
-        method_type: &str,
-    ) -> u16 {
-        let class_index = ConstantPoolEntry::find_class(constant_pool, class_name);
-        let name_and_type_index =
-            ConstantPoolEntry::find_name_and_type(constant_pool, method_name, method_type);
-
-        if class_index == 0 || name_and_type_index == 0 {
-            return 0;
-        }
-
-        for (i, entry) in constant_pool.iter().enumerate() {
-            if let ConstantPoolEntry::MethodRef(c, n) = entry {
-                if *c == class_index && *n == name_and_type_index {
-                    return i as u16 + 1;
-                }
-            }
-        }
-
-        0
-    }
-
-    pub fn find_field_ref(
-        constant_pool: &[ConstantPoolEntry],
-        class_name: &str,
-        field_name: &str,
-        field_type: &str,
-    ) -> u16 {
-        let class_index = ConstantPoolEntry::find_class(constant_pool, class_name);
-        let name_and_type_index =
-            ConstantPoolEntry::find_name_and_type(constant_pool, field_name, field_type);
-
-        if class_index == 0 || name_and_type_index == 0 {
-            return 0;
-        }
-
-        for (i, entry) in constant_pool.iter().enumerate() {
-            if let ConstantPoolEntry::FieldRef(c, n) = entry {
-                if *c == class_index && *n == name_and_type_index {
-                    return i as u16 + 1;
-                }
-            }
-        }
-
-        0
     }
 }
 
 pub trait ConstantPoolExt {
-    fn find_utf8(&self, utf8: &str) -> Option<u16>;
-    fn find_class(&self, class_name: &str) -> Option<u16>;
-    fn find_name_and_type(&self, name: &str, type_: &str) -> Option<u16>;
-    fn find_field_ref(&self, class_name: &str, name: &str, type_: &str) -> Option<u16>;
-    fn find_method_ref(&self, class_name: &str, name: &str, type_: &str) -> Option<u16>;
-    fn find_or_add_utf8(&mut self, value: &str) -> u16;
-    fn find_or_add_class(&mut self, name: &str) -> u16;
-    fn find_or_add_name_and_type(&mut self, name: &str, descriptor: &str) -> u16;
-    fn find_or_add_method_ref(&mut self, class_name: &str, name: &str, descriptor: &str) -> u16;
-    fn find_or_add_field_ref(&mut self, class_name: &str, name: &str, descriptor: &str) -> u16;
-}
-
-macro_rules! return_none_on_none {
-    ($e:expr) => {
-        match $e {
-            Some(v) => v,
-            None => return None,
-        }
-    };
+    fn find_utf8(&self, utf8: &str) -> Option<usize>;
+    fn find_class(&self, class_name: &str) -> Option<usize>;
+    fn find_name_and_type(&self, name: &str, type_: &str) -> Option<usize>;
+    fn find_field_ref(&self, class_name: &str, name: &str, type_: &str) -> Option<usize>;
+    fn find_method_ref(&self, class_name: &str, name: &str, type_: &str) -> Option<usize>;
+    fn find_or_add_utf8(&mut self, value: &str) -> usize;
+    fn find_or_add_class(&mut self, name: &str) -> usize;
+    fn find_or_add_name_and_type(&mut self, name: &str, descriptor: &str) -> usize;
+    fn find_or_add_method_ref(&mut self, class_name: &str, name: &str, descriptor: &str) -> usize;
+    fn find_or_add_field_ref(&mut self, class_name: &str, name: &str, descriptor: &str) -> usize;
 }
 
 impl ConstantPoolExt for Vec<ConstantPoolEntry> {
-    fn find_utf8(&self, utf8: &str) -> Option<u16> {
+    fn find_utf8(&self, utf8: &str) -> Option<usize> {
         for (i, entry) in self.iter().enumerate() {
             if let ConstantPoolEntry::Utf8(value) = entry {
                 if value == utf8 {
-                    return Some(i as u16 + 1);
+                    return Some(i + 1);
                 }
             }
         }
         None
     }
 
-    fn find_class(&self, class_name: &str) -> Option<u16> {
-        let class_name_index = return_none_on_none!(self.find_utf8(class_name));
+    fn find_class(&self, class_name: &str) -> Option<usize> {
+        let class_name_index = self.find_utf8(class_name)?;
         for (i, entry) in self.iter().enumerate() {
             if let ConstantPoolEntry::Class(name_index) = entry {
                 if *name_index == class_name_index {
-                    return Some(i as u16 + 1);
+                    return Some(i + 1);
                 }
             }
         }
         None
     }
 
-    fn find_name_and_type(&self, name: &str, descriptor: &str) -> Option<u16> {
-        let name_index = return_none_on_none!(self.find_utf8(name));
-        let type_index = return_none_on_none!(self.find_utf8(descriptor));
+    fn find_name_and_type(&self, name: &str, descriptor: &str) -> Option<usize> {
+        let name_index = self.find_utf8(name)?;
+        let type_index = self.find_utf8(descriptor)?;
         for (i, entry) in self.iter().enumerate() {
             if let ConstantPoolEntry::NameAndType(n, t) = entry {
                 if *n == name_index && *t == type_index {
-                    return Some(i as u16 + 1);
+                    return Some(i + 1);
                 }
             }
         }
         None
     }
 
-    fn find_field_ref(&self, class_name: &str, name: &str, descriptor: &str) -> Option<u16> {
-        let class_index = return_none_on_none!(self.find_class(class_name));
-        let name_and_type_index = return_none_on_none!(self.find_name_and_type(name, descriptor));
+    fn find_field_ref(&self, class_name: &str, name: &str, descriptor: &str) -> Option<usize> {
+        let class_index = self.find_class(class_name)?;
+        let name_and_type_index = self.find_name_and_type(name, descriptor)?;
         for (i, entry) in self.iter().enumerate() {
             if let ConstantPoolEntry::FieldRef(c, n) = entry {
                 if *c == class_index && *n == name_and_type_index {
-                    return Some(i as u16 + 1);
+                    return Some(i + 1);
                 }
             }
         }
         None
     }
 
-    fn find_method_ref(&self, class_name: &str, name: &str, descriptor: &str) -> Option<u16> {
-        let class_index = return_none_on_none!(self.find_class(class_name));
-        let name_and_type_index = return_none_on_none!(self.find_name_and_type(name, descriptor));
+    fn find_method_ref(&self, class_name: &str, name: &str, descriptor: &str) -> Option<usize> {
+        let class_index = self.find_class(class_name)?;
+        let name_and_type_index = self.find_name_and_type(name, descriptor)?;
         for (i, entry) in self.iter().enumerate() {
             if let ConstantPoolEntry::MethodRef(c, n) = entry {
                 if *c == class_index && *n == name_and_type_index {
-                    return Some(i as u16 + 1);
+                    return Some(i + 1);
                 }
             }
         }
         None
     }
 
-    fn find_or_add_utf8(&mut self, value: &str) -> u16 {
+    fn find_or_add_utf8(&mut self, value: &str) -> usize {
         match self.find_utf8(value) {
             Some(index) => index,
             None => {
                 self.push(ConstantPoolEntry::Utf8(value.to_string()));
-                self.len() as u16
+                self.len()
             }
         }
     }
 
-    fn find_or_add_class(&mut self, name: &str) -> u16 {
+    fn find_or_add_class(&mut self, name: &str) -> usize {
         match self.find_class(name) {
             Some(index) => index,
             None => {
                 let name_index = self.find_or_add_utf8(name);
                 self.push(ConstantPoolEntry::Class(name_index));
-                self.len() as u16
+                self.len()
             }
         }
     }
 
-    fn find_or_add_name_and_type(&mut self, name: &str, descriptor: &str) -> u16 {
+    fn find_or_add_name_and_type(&mut self, name: &str, descriptor: &str) -> usize {
         match self.find_name_and_type(name, descriptor) {
             Some(index) => index,
             None => {
                 let name_index = self.find_or_add_utf8(name);
                 let descriptor_index = self.find_or_add_utf8(descriptor);
                 self.push(ConstantPoolEntry::NameAndType(name_index, descriptor_index));
-                self.len() as u16
+                self.len()
             }
         }
     }
 
-    fn find_or_add_method_ref(&mut self, class_name: &str, name: &str, descriptor: &str) -> u16 {
+    fn find_or_add_method_ref(&mut self, class_name: &str, name: &str, descriptor: &str) -> usize {
         match self.find_method_ref(class_name, name, descriptor) {
             Some(index) => index,
             None => {
@@ -331,12 +225,12 @@ impl ConstantPoolExt for Vec<ConstantPoolEntry> {
                     class_index,
                     name_and_type_index,
                 ));
-                self.len() as u16
+                self.len()
             }
         }
     }
 
-    fn find_or_add_field_ref(&mut self, class_name: &str, name: &str, descriptor: &str) -> u16 {
+    fn find_or_add_field_ref(&mut self, class_name: &str, name: &str, descriptor: &str) -> usize {
         match self.find_field_ref(class_name, name, descriptor) {
             Some(index) => index,
             None => {
@@ -346,7 +240,7 @@ impl ConstantPoolExt for Vec<ConstantPoolEntry> {
                     class_index,
                     name_and_type_index,
                 ));
-                self.len() as u16
+                self.len()
             }
         }
     }

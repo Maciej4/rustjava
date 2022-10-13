@@ -1,4 +1,4 @@
-use crate::java_class::ConstantPoolEntry;
+use crate::java_class::{ConstantPoolEntry, ConstantPoolExt};
 use crate::jvm::{Class, Method};
 use crate::{Instruction, Primitive, PrimitiveType};
 use std::collections::HashMap;
@@ -91,7 +91,7 @@ fn parse_expression(
     node: &Node,
     source: &[u8],
     super_locals: &Vec<String>,
-    constant_pool: &[ConstantPoolEntry],
+    constant_pool: &Vec<ConstantPoolEntry>,
 ) -> Vec<Instruction> {
     let mut instructions = vec![];
 
@@ -194,12 +194,9 @@ fn parse_expression(
 
             // TODO: remove this or make it more generic
             if class_or_object_name == "System.out" && method_name == "println" {
-                let index = ConstantPoolEntry::find_method_ref(
-                    constant_pool,
-                    "java/io/PrintStream",
-                    "println",
-                    "(I)V",
-                );
+                let index = constant_pool
+                    .find_method_ref("java/io/PrintStream", "println", "(I)V")
+                    .unwrap();
 
                 instructions.push(Instruction::InvokeVirtual(index as usize));
 
@@ -214,21 +211,19 @@ fn parse_expression(
 
                 instructions.push(Instruction::Load(index, PrimitiveType::Reference));
 
-                let method_index = ConstantPoolEntry::find_method_ref(
-                    constant_pool,
-                    "Point", // TODO: Get class name
-                    method_name,
-                    "()I", // TODO: Get method type signature
-                );
+                let method_index = constant_pool
+                    .find_method_ref(
+                        "Point", // TODO: Get class name
+                        method_name,
+                        "()I", // TODO: Get method type signature
+                    )
+                    .unwrap();
 
                 instructions.push(Instruction::InvokeVirtual(method_index as usize));
             } else {
-                let method_index = ConstantPoolEntry::find_method_ref(
-                    constant_pool,
-                    class_or_object_name,
-                    method_name,
-                    method_type.as_str(),
-                );
+                let method_index = constant_pool
+                    .find_method_ref(class_or_object_name, method_name, method_type.as_str())
+                    .unwrap();
 
                 instructions.push(Instruction::InvokeVirtual(method_index as usize));
             }
@@ -238,7 +233,7 @@ fn parse_expression(
                 .utf8_text(source)
                 .unwrap();
 
-            let class_index = ConstantPoolEntry::find_class(constant_pool, class_name);
+            let class_index = constant_pool.find_class(class_name).unwrap();
 
             instructions.push(Instruction::New(class_index as usize));
 
@@ -262,12 +257,9 @@ fn parse_expression(
 
             let method_type = format!("({})V", "I".repeat(arguments_count));
 
-            let method_index = ConstantPoolEntry::find_method_ref(
-                constant_pool,
-                class_name,
-                "<init>",
-                method_type.as_str(),
-            );
+            let method_index = constant_pool
+                .find_method_ref(class_name, "<init>", method_type.as_str())
+                .unwrap();
 
             instructions.push(Instruction::InvokeSpecial(method_index as usize));
         }
@@ -286,23 +278,24 @@ fn parse_expression(
                     PrimitiveType::Reference,
                 ));
 
-                let field_index = ConstantPoolEntry::find_field_ref(
-                    constant_pool,
-                    "Point", // TODO: get the class name
-                    field_name,
-                    "I", // TODO: get the field type
-                );
+                let field_index = constant_pool
+                    .find_field_ref(
+                        "Point", // TODO: get the class name
+                        field_name, "I", // TODO: get the field type
+                    )
+                    .unwrap();
 
                 instructions.push(Instruction::GetField(field_index as usize));
             } else {
                 // The field is of a static type
 
-                let field_index = ConstantPoolEntry::find_field_ref(
-                    constant_pool,
-                    class_or_object_name,
-                    field_name,
-                    "I", // TODO: get the field type
-                );
+                let field_index = constant_pool
+                    .find_field_ref(
+                        class_or_object_name,
+                        field_name,
+                        "I", // TODO: get the field type
+                    )
+                    .unwrap();
 
                 instructions.push(Instruction::GetStatic(field_index as usize));
             }
@@ -317,7 +310,7 @@ fn parse_code_block(
     node: &Node,
     source: &[u8],
     super_locals: Vec<String>,
-    constant_pool: &[ConstantPoolEntry],
+    constant_pool: &Vec<ConstantPoolEntry>,
 ) -> Vec<Instruction> {
     let mut instructions = vec![];
     let mut locals = super_locals;
@@ -578,7 +571,7 @@ fn parse_method_args(node: &Node, source: &[u8]) -> (String, Vec<String>, Vec<Pr
 fn parse_method(
     node: &Node,
     source: &[u8],
-    constant_pool: &[ConstantPoolEntry],
+    constant_pool: &Vec<ConstantPoolEntry>,
 ) -> (String, Method) {
     let mut method_name = get_child_node_by_kind(node, "identifier")
         .utf8_text(source)
@@ -614,104 +607,6 @@ fn parse_method(
     let method = Method { instructions };
 
     (method_name, method)
-}
-
-fn find_or_add_utf8(constant_pool: &mut Vec<ConstantPoolEntry>, value: &str) -> u16 {
-    let index = ConstantPoolEntry::find_utf8(&constant_pool[..], value);
-
-    if index == 0 {
-        constant_pool.push(ConstantPoolEntry::Utf8(value.to_string()));
-
-        return constant_pool.len() as u16;
-    }
-
-    index
-}
-
-fn find_or_add_class(constant_pool: &mut Vec<ConstantPoolEntry>, class_name: &str) -> u16 {
-    let index = ConstantPoolEntry::find_class(&constant_pool[..], class_name);
-
-    if index == 0 {
-        let class_name_index = find_or_add_utf8(constant_pool, class_name);
-
-        constant_pool.push(ConstantPoolEntry::Class(class_name_index));
-
-        return constant_pool.len() as u16;
-    }
-
-    index
-}
-
-fn find_or_add_name_and_type(
-    constant_pool: &mut Vec<ConstantPoolEntry>,
-    name: &str,
-    descriptor: &str,
-) -> u16 {
-    let index = ConstantPoolEntry::find_name_and_type(&constant_pool[..], name, descriptor);
-
-    if index == 0 {
-        let name_index = find_or_add_utf8(constant_pool, name);
-        let descriptor_index = find_or_add_utf8(constant_pool, descriptor);
-
-        constant_pool.push(ConstantPoolEntry::NameAndType(name_index, descriptor_index));
-
-        return constant_pool.len() as u16;
-    }
-
-    index
-}
-
-fn find_or_add_method_ref(
-    constant_pool: &mut Vec<ConstantPoolEntry>,
-    class_name: &str,
-    method_name: &str,
-    method_type: &str,
-) -> u16 {
-    let index = ConstantPoolEntry::find_method_ref(
-        &constant_pool[..],
-        class_name,
-        method_name,
-        method_type,
-    );
-
-    if index == 0 {
-        let class_index = find_or_add_class(constant_pool, class_name);
-        let name_and_type_index =
-            find_or_add_name_and_type(constant_pool, method_name, method_type);
-
-        constant_pool.push(ConstantPoolEntry::MethodRef(
-            class_index,
-            name_and_type_index,
-        ));
-
-        return constant_pool.len() as u16;
-    }
-
-    index
-}
-
-fn find_or_add_field_ref(
-    constant_pool: &mut Vec<ConstantPoolEntry>,
-    class_name: &str,
-    field_name: &str,
-    field_type: &str,
-) -> u16 {
-    let index =
-        ConstantPoolEntry::find_field_ref(&constant_pool[..], class_name, field_name, field_type);
-
-    if index == 0 {
-        let class_index = find_or_add_class(constant_pool, class_name);
-        let name_and_type_index = find_or_add_name_and_type(constant_pool, field_name, field_type);
-
-        constant_pool.push(ConstantPoolEntry::FieldRef(
-            class_index,
-            name_and_type_index,
-        ));
-
-        return constant_pool.len() as u16;
-    }
-
-    index
 }
 
 fn find_invocations(root_node: &Node, source: &[u8], class: &mut Class) {
@@ -769,7 +664,7 @@ fn find_invocations(root_node: &Node, source: &[u8], class: &mut Class) {
         match access_node.kind() {
             "type_identifier" => {
                 let class_name = access_node.utf8_text(source).unwrap();
-                let _class_index = find_or_add_class(&mut constant_pool, class_name);
+                let _class_index = constant_pool.find_or_add_class(class_name);
 
                 if access_node.parent().unwrap().kind() == "object_creation_expression" {
                     let method_name = "<init>";
@@ -783,8 +678,7 @@ fn find_invocations(root_node: &Node, source: &[u8], class: &mut Class) {
 
                     let method_type = format!("({})V", "I".repeat(argument_count as usize));
 
-                    let _method_index = find_or_add_method_ref(
-                        &mut constant_pool,
+                    let _method_index = constant_pool.find_or_add_method_ref(
                         class_name,
                         method_name,
                         method_type.as_str(),
@@ -809,15 +703,13 @@ fn find_invocations(root_node: &Node, source: &[u8], class: &mut Class) {
                 if param_names_and_types.contains_key(&class_or_object_name) {
                     let field_type = param_names_and_types.get(&class_or_object_name).unwrap();
 
-                    let _field_index = find_or_add_field_ref(
-                        &mut constant_pool,
+                    let _field_index = constant_pool.find_or_add_field_ref(
                         field_type,
                         &field_name,
                         "I", // TODO: get the type from the field
                     );
                 } else {
-                    let _field_index = find_or_add_field_ref(
-                        &mut constant_pool,
+                    let _field_index = constant_pool.find_or_add_field_ref(
                         &class_or_object_name,
                         &field_name,
                         "I",
@@ -841,8 +733,7 @@ fn find_invocations(root_node: &Node, source: &[u8], class: &mut Class) {
                         - 2;
                     let method_type = format!("({})I", "I".repeat(method_arg_count));
 
-                    let _method_index = find_or_add_method_ref(
-                        &mut constant_pool,
+                    let _method_index = constant_pool.find_or_add_method_ref(
                         &class.name,
                         &method_name,
                         &method_type,
@@ -873,8 +764,7 @@ fn find_invocations(root_node: &Node, source: &[u8], class: &mut Class) {
 
                 // TODO: remove this
                 if method_name == "println" {
-                    let _method_index = find_or_add_method_ref(
-                        &mut constant_pool,
+                    let _method_index = constant_pool.find_or_add_method_ref(
                         "java/io/PrintStream",
                         &method_name,
                         "(I)V",
@@ -886,15 +776,13 @@ fn find_invocations(root_node: &Node, source: &[u8], class: &mut Class) {
                 if param_names_and_types.contains_key(&class_or_object_name) {
                     let class_type = param_names_and_types.get(&class_or_object_name).unwrap();
 
-                    let _method_index = find_or_add_method_ref(
-                        &mut constant_pool,
+                    let _method_index = constant_pool.find_or_add_method_ref(
                         class_type,
                         &method_name,
                         &method_type,
                     );
                 } else {
-                    let _method_index = find_or_add_method_ref(
-                        &mut constant_pool,
+                    let _method_index = constant_pool.find_or_add_method_ref(
                         &class_or_object_name,
                         &method_name,
                         &method_type,

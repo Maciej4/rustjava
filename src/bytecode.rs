@@ -1,3 +1,5 @@
+use std::any::Any;
+
 #[derive(Debug, Clone)]
 pub enum Instruction {
     Nop,

@@ -11,22 +11,22 @@ fn parse_constant_pool(r: &mut Reader, constant_pool_count: u16) -> Vec<Constant
     for _ in 1..constant_pool_count {
         constant_pool.push(match r.g1() {
             1 => {
-                let length = r.g2() as usize;
+                let length = r.g2u();
                 ConstantPoolEntry::Utf8(String::from_utf8(r.g(length)).unwrap())
             }
             3 => ConstantPoolEntry::Integer(i32::from_be_bytes(r.g4_array())),
             4 => ConstantPoolEntry::Float(f32::from_be_bytes(r.g4_array())),
             5 => ConstantPoolEntry::Long(i64::from_be_bytes(r.g8_array())),
             6 => ConstantPoolEntry::Double(f64::from_be_bytes(r.g8_array())),
-            7 => ConstantPoolEntry::Class(r.g2()),
-            8 => ConstantPoolEntry::String(r.g2()),
-            9 => ConstantPoolEntry::FieldRef(r.g2(), r.g2()),
-            10 => ConstantPoolEntry::MethodRef(r.g2(), r.g2()),
-            11 => ConstantPoolEntry::InterfaceMethodRef(r.g2(), r.g2()),
-            12 => ConstantPoolEntry::NameAndType(r.g2(), r.g2()),
-            15 => ConstantPoolEntry::MethodHandle(r.g1(), r.g2()),
-            16 => ConstantPoolEntry::MethodType(r.g2()),
-            18 => ConstantPoolEntry::InvokeDynamic(r.g2(), r.g2()),
+            7 => ConstantPoolEntry::Class(r.g2u()),
+            8 => ConstantPoolEntry::String(r.g2u()),
+            9 => ConstantPoolEntry::FieldRef(r.g2u(), r.g2u()),
+            10 => ConstantPoolEntry::MethodRef(r.g2u(), r.g2u()),
+            11 => ConstantPoolEntry::InterfaceMethodRef(r.g2u(), r.g2u()),
+            12 => ConstantPoolEntry::NameAndType(r.g2u(), r.g2u()),
+            15 => ConstantPoolEntry::MethodHandle(r.g1(), r.g2u()),
+            16 => ConstantPoolEntry::MethodType(r.g2u()),
+            18 => ConstantPoolEntry::InvokeDynamic(r.g2u(), r.g2u()),
             _ => panic!("unsupported constant pool entry"),
         });
     }

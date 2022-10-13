@@ -35,6 +35,11 @@ impl Reader {
         (self.g1() as u16) << 8 | (self.g1() as u16)
     }
 
+    /// Reads and advances two bytes and returns a usize.
+    pub fn g2u(&mut self) -> usize {
+        ((self.g1() as u16) << 8 | (self.g1() as u16)) as usize
+    }
+
     /// Reads and advances four bytes.
     pub fn g4(&mut self) -> u32 {
         (self.g1() as u32) << 24

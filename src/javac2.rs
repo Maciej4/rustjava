@@ -4,15 +4,6 @@ use crate::{Instruction, Primitive, PrimitiveType};
 use std::collections::HashMap;
 use tree_sitter::{Node, Parser};
 
-macro_rules! try_or_err {
-    ($e:expr) => {
-        match $e {
-            Ok(val) => val,
-            Err(err) => return Err(err),
-        }
-    };
-}
-
 trait NodeExt {
     fn child_by_kind(&self, kind: &str) -> Option<Node>;
     fn children_by_kind(&self, kind: &str) -> Vec<Node>;
@@ -82,7 +73,7 @@ struct SuperLocals {
     pub local_names: Vec<String>,
     pub local_types: Vec<PrimitiveType>,
     // TODO: add support for variables that are not primitives
-    pub reference_classes: HashMap<usize, String>, // index of local, class name
+    pub reference_classes: HashMap<usize, u16>, // index of local, class name
 }
 
 impl SuperLocals {
@@ -188,7 +179,7 @@ fn parse_method_info(
         };
 
         let param_type = match param.child(0) {
-            Some(node) => try_or_err!(type_node_to_primitive_type(node)),
+            Some(node) => type_node_to_primitive_type(node)?,
             None => return Err(String::from("Formal parameter is missing type")),
         };
 
@@ -197,11 +188,7 @@ fn parse_method_info(
     }
 
     let method_return_type = match method_node.child(1) {
-        Some(method_return_type_node) => match type_node_to_primitive_type(method_return_type_node)
-        {
-            Ok(method_return_type) => method_return_type,
-            Err(err) => return Err(err),
-        },
+        Some(method_return_type_node) => type_node_to_primitive_type(method_return_type_node)?,
         None => return Err(String::from("Method return type not found")),
     };
 
@@ -252,11 +239,7 @@ fn generate_method_list(class_node: &Node, source: &[u8]) -> Result<Vec<MethodIn
     };
 
     for method_node in class_node.children_by_kind("method_declaration") {
-        methods.push(try_or_err!(parse_method_info(
-            &method_node,
-            class_name.clone(),
-            source
-        )));
+        methods.push(parse_method_info(&method_node, class_name.clone(), source)?);
     }
 
     // TODO: Add constructor_declaration
@@ -295,7 +278,7 @@ fn parse_expression(
 
             match super_locals.find_local(&name) {
                 Some(index) => {
-                    let local_type = try_or_err!(super_locals.get_local_type(&index));
+                    let local_type = super_locals.get_local_type(&index)?;
                     instructions.push(Instruction::Load(index, local_type));
                 }
                 None => return Err(format!("Local variable {} not found", name)),
@@ -321,14 +304,10 @@ fn parse_expression(
             };
 
             let (left_instructions, left_type) =
-                try_or_err!(parse_expression(&left, source, super_locals, constant_pool));
+                parse_expression(&left, source, super_locals, constant_pool)?;
 
-            let (right_instructions, right_type) = try_or_err!(parse_expression(
-                &right,
-                source,
-                super_locals,
-                constant_pool
-            ));
+            let (right_instructions, right_type) =
+                parse_expression(&right, source, super_locals, constant_pool)?;
 
             if left_type.matches(&right_type) {
                 return Err(format!(
