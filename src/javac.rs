@@ -4,849 +4,395 @@ use crate::{Instruction, Primitive, PrimitiveType};
 use std::collections::HashMap;
 use tree_sitter::{Node, Parser};
 
-/// Iterate over a tree's nodes and print them.
-fn pretty_print_tree(root_node: &Node) {
-    let mut stack = vec![*root_node];
-    let mut indent_depth_list = vec![0];
+trait NodeExt {
+    fn child_by_kind(&self, kind: &str) -> Option<Node>;
+    fn children_by_kind(&self, kind: &str) -> Vec<Node>;
+    fn get_children(&self) -> Vec<Node>;
+    fn count_node_kind_recursive(&self, kind: &str) -> usize;
+    fn depth(&self) -> usize;
+    fn print_tree(&self);
+}
 
-    while let Some(node) = stack.pop() {
-        let mut indent = indent_depth_list.pop().unwrap();
-        println!(
-            "{}{} [{}..{}]",
-            "  ".repeat(indent),
-            node.kind(),
-            node.start_byte(),
-            node.end_byte()
-        );
+impl NodeExt for Node<'_> {
+    fn child_by_kind(&self, kind: &str) -> Option<Node> {
+        self.children(&mut self.walk())
+            .find(|child| child.kind() == kind)
+    }
 
-        indent += 1;
-        for i in (0..node.child_count()).rev() {
-            stack.push(node.child(i).unwrap());
-            indent_depth_list.push(indent);
+    fn children_by_kind(&self, kind: &str) -> Vec<Node> {
+        self.children(&mut self.walk())
+            .filter(|child| child.kind() == kind)
+            .collect()
+    }
+
+    fn get_children(&self) -> Vec<Node> {
+        self.children(&mut self.walk()).collect()
+    }
+
+    fn count_node_kind_recursive(&self, kind: &str) -> usize {
+        let mut count = 0;
+        for child in self.get_children() {
+            if child.kind() == kind {
+                count += 1;
+            }
+            count += child.count_node_kind_recursive(kind);
+        }
+        count
+    }
+
+    fn depth(&self) -> usize {
+        let mut depth = 0;
+        let mut current_node = *self;
+        while let Some(parent) = current_node.parent() {
+            depth += 1;
+            current_node = parent;
+        }
+        depth
+    }
+
+    fn print_tree(&self) {
+        let mut stack = vec![*self];
+        while let Some(node) = stack.pop() {
+            println!(
+                "{}{} [{}..{}]",
+                "  ".repeat(node.depth()),
+                node.kind(),
+                node.start_byte(),
+                node.end_byte()
+            );
+
+            for i in (0..node.child_count()).rev() {
+                stack.push(node.child(i).unwrap());
+            }
         }
     }
 }
 
-fn pretty_print_node_full(node: &Node, source: &[u8]) {
-    println!(
-        "{} [{}..{}]:\n```\n{}\n```",
-        node.kind(),
-        node.start_byte(),
-        node.end_byte(),
-        node.utf8_text(source).unwrap()
+#[derive(Debug)]
+struct SuperLocals {
+    pub local_names: Vec<String>,
+    pub local_types: Vec<PrimitiveType>,
+    // TODO: add support for variables that are not primitives
+    pub reference_classes: HashMap<usize, u16>, // index of local, class name
+}
+
+impl SuperLocals {
+    pub fn find_local(&self, name: &str) -> Option<usize> {
+        self.local_names
+            .iter()
+            .position(|local_name| local_name == name)
+    }
+
+    pub fn get_local_type(&self, index: &usize) -> Result<PrimitiveType, String> {
+        match self.local_types.get(index.clone()) {
+            Some(local_type) => Ok(local_type.clone()),
+            None => Err(format!("Local variable with index {} not found", index)),
+        }
+    }
+
+    pub fn add_local(&mut self, name: &str, local_type: PrimitiveType) {
+        self.local_names.push(name.to_string());
+        self.local_types.push(local_type);
+    }
+}
+
+#[derive(Debug)]
+struct MethodInfo {
+    pub method_name: String,
+    pub class_name: String,
+    pub signature: String,
+    pub variables: SuperLocals,
+    pub return_type: PrimitiveType,
+}
+
+fn type_node_to_primitive_type(node: Node) -> Result<PrimitiveType, String> {
+    match node.kind() {
+        // TODO: Properly implement array type
+        // L = fully qualified class name
+        // [ = array
+        "boolean_type" => Ok(PrimitiveType::Boolean),
+        "array_type" => Ok(PrimitiveType::Reference),
+        "void_type" => Ok(PrimitiveType::Null),
+        "integral_type" | "floating_point_type" => {
+            let node_deep =
+                match node.child(0) {
+                    Some(node) => node,
+                    None => return Err(String::from(
+                        "Integral or floating point type formal parameter is missing internal type",
+                    )),
+                };
+
+            match node_deep.kind() {
+                "byte" => Ok(PrimitiveType::Byte),
+                "short" => Ok(PrimitiveType::Short),
+                "int" => Ok(PrimitiveType::Int),
+                "long" => Ok(PrimitiveType::Long),
+                "char" => Ok(PrimitiveType::Char),
+                "float" => Ok(PrimitiveType::Float),
+                "double" => Ok(PrimitiveType::Double),
+                _ => Err(format!(
+                    "Formal parameter with unknown integral or floating point type: {}",
+                    node_deep.kind()
+                )),
+            }
+        }
+        _ => Err(format!(
+            "Formal parameter with unknown type: {}",
+            node.kind()
+        )),
+    }
+}
+
+fn parse_method_info(
+    method_node: &Node,
+    class_name: String,
+    source: &[u8],
+) -> Result<MethodInfo, String> {
+    let method_name = match method_node.child_by_kind("identifier") {
+        Some(node) => match node.utf8_text(source) {
+            Ok(text) => text.to_string(),
+            Err(err) => return Err(format!("Failed to parse method identifier: {}", err)),
+        },
+        None => return Err(String::from("Method is missing identifier")),
+    };
+
+    let formal_params = match method_node.child_by_kind("formal_parameters") {
+        Some(formal_params_node) => formal_params_node,
+        None => return Err(String::from("Formal parameters not found")),
+    };
+
+    let mut param_names = vec![];
+    let mut param_types = vec![];
+
+    for param in formal_params.children_by_kind("formal_parameter") {
+        let param_name = match param.child_by_kind("identifier") {
+            Some(node) => match node.utf8_text(source) {
+                Ok(text) => text.to_string(),
+                Err(err) => {
+                    return Err(format!(
+                        "Failed to parse formal parameter identifier: {}",
+                        err
+                    ))
+                }
+            },
+            None => return Err(String::from("Formal parameter is missing identifier")),
+        };
+
+        let param_type = match param.child(0) {
+            Some(node) => type_node_to_primitive_type(node)?,
+            None => return Err(String::from("Formal parameter is missing type")),
+        };
+
+        param_names.push(param_name);
+        param_types.push(param_type);
+    }
+
+    let method_return_type = match method_node.child(1) {
+        Some(method_return_type_node) => type_node_to_primitive_type(method_return_type_node)?,
+        None => return Err(String::from("Method return type not found")),
+    };
+
+    let mut signature = format!(
+        "{}({}){}",
+        method_name,
+        param_types
+            .iter()
+            .map(|t| t.as_letter())
+            .collect::<String>(),
+        method_return_type.as_letter()
     );
-}
 
-fn get_child_node_by_kind<'a>(node: &tree_sitter::Node<'a>, kind: &str) -> Node<'a> {
-    for i in 0..node.child_count() {
-        let child = node.child(i).unwrap();
-
-        if child.kind() == kind {
-            return child;
-        }
+    // TODO: remove this when the standard library is implemented
+    if signature == "main(R)V" {
+        signature = "main([Ljava/lang/String;)V".to_string();
     }
 
-    panic!("Could not find child node with name {}", kind);
+    let variables = SuperLocals {
+        local_names: param_names,
+        local_types: param_types,
+        reference_classes: HashMap::new(), // TODO: Implement this
+    };
+
+    Ok(MethodInfo {
+        method_name,
+        class_name,
+        signature,
+        variables,
+        return_type: method_return_type,
+    })
 }
 
-fn get_child_node_by_kinds<'a>(node: &tree_sitter::Node<'a>, kinds: Vec<&str>) -> Node<'a> {
-    if kinds.is_empty() {
-        return *node;
+fn generate_method_list(class_node: &Node, source: &[u8]) -> Result<Vec<MethodInfo>, String> {
+    let mut methods = vec![];
+
+    let class_declaration_node = match class_node.parent() {
+        Some(node) => node,
+        None => return Err(String::from("Class body node has no parent")),
+    };
+
+    let class_name = match class_declaration_node.child_by_kind("identifier") {
+        Some(node) => match node.utf8_text(source) {
+            Ok(text) => text.to_string(),
+            Err(err) => return Err(format!("Failed to parse class identifier: {}", err)),
+        },
+        None => return Err(String::from("Class is missing identifier")),
+    };
+
+    for method_node in class_node.children_by_kind("method_declaration") {
+        methods.push(parse_method_info(&method_node, class_name.clone(), source)?);
     }
 
-    return get_child_node_by_kinds(&get_child_node_by_kind(node, kinds[0]), kinds[1..].to_vec());
-}
+    // TODO: Add constructor_declaration
 
-fn get_child_nodes_by_kind<'a>(node: &tree_sitter::Node<'a>, kind: &str) -> Vec<Node<'a>> {
-    let mut nodes = vec![];
-
-    for i in 0..node.child_count() {
-        let child = node.child(i).unwrap();
-
-        if child.kind() == kind {
-            nodes.push(child);
-        }
-    }
-
-    nodes
-}
-
-fn recursive_count_nodes(node: &tree_sitter::Node, kind: &str) -> usize {
-    let mut count = 0;
-
-    for i in 0..node.child_count() {
-        let child = node.child(i).unwrap();
-
-        if child.kind() == kind {
-            count += 1;
-        }
-
-        count += recursive_count_nodes(&child, kind);
-    }
-
-    count
+    Ok(methods)
 }
 
 fn parse_expression(
     node: &Node,
     source: &[u8],
-    super_locals: &Vec<String>,
-    constant_pool: &Vec<ConstantPoolEntry>,
-) -> Vec<Instruction> {
+    super_locals: &SuperLocals,
+    constant_pool: &[ConstantPoolEntry],
+) -> Result<(Vec<Instruction>, PrimitiveType), String> {
     let mut instructions = vec![];
+    let mut expression_type = PrimitiveType::Null;
 
     match node.kind() {
-        "(" => {}
-        "," => {}
-        ")" => {}
+        "(" | "," | ")" => {}
         "decimal_integer_literal" => {
-            let value = node.utf8_text(source).unwrap().parse::<i32>().unwrap();
-
+            let value = match node.utf8_text(source) {
+                Ok(text) => match text.parse::<i32>() {
+                    Ok(value) => value,
+                    Err(err) => return Err(format!("Failed to parse integer literal: {}", err)),
+                },
+                Err(err) => {
+                    return Err(format!("Failed to parse decimal integer literal: {}", err))
+                }
+            };
             instructions.push(Instruction::Const(Primitive::Int(value)));
         }
         "identifier" => {
-            let name = node.utf8_text(source).unwrap();
+            let name = match node.utf8_text(source) {
+                Ok(text) => text.to_string(),
+                Err(err) => return Err(format!("Failed to parse identifier: {}", err)),
+            };
 
-            if super_locals.contains(&name.to_string()) {
-                instructions.push(Instruction::Load(
-                    super_locals.iter().position(|r| r == name).unwrap(),
-                    PrimitiveType::Int,
-                ));
-            } else {
-                panic!("Could not find local variable {}", name);
+            match super_locals.find_local(&name) {
+                Some(index) => {
+                    let local_type = super_locals.get_local_type(&index)?;
+                    instructions.push(Instruction::Load(index, local_type));
+                }
+                None => return Err(format!("Local variable {} not found", name)),
             }
         }
         "binary_expression" => {
-            let left = node.child(0).unwrap();
-            let right = node.child(2).unwrap();
+            let left = match node.child(0) {
+                Some(node) => node,
+                None => return Err(String::from("Binary expression is missing left operand")),
+            };
 
-            instructions.append(&mut parse_expression(
-                &left,
-                source,
-                super_locals,
-                constant_pool,
-            ));
-            instructions.append(&mut parse_expression(
-                &right,
-                source,
-                super_locals,
-                constant_pool,
-            ));
+            let operator = match node.child(1) {
+                Some(node) => match node.utf8_text(source) {
+                    Ok(text) => text.to_string(),
+                    Err(err) => return Err(format!("Failed to parse binary operator: {}", err)),
+                },
+                None => return Err(String::from("Binary expression is missing operator")),
+            };
 
-            match node.child(1).unwrap().kind() {
-                "+" => instructions.push(Instruction::Add(PrimitiveType::Int)),
-                "-" => instructions.push(Instruction::Sub(PrimitiveType::Int)),
-                "*" => instructions.push(Instruction::Mul(PrimitiveType::Int)),
-                "/" => instructions.push(Instruction::Div(PrimitiveType::Int)),
-                "%" => instructions.push(Instruction::Rem(PrimitiveType::Int)),
-                _ => panic!("Unknown operator {}", node.child(1).unwrap().kind()),
+            let right = match node.child(2) {
+                Some(node) => node,
+                None => return Err(String::from("Binary expression is missing right operand")),
+            };
+
+            let (left_instructions, left_type) =
+                parse_expression(&left, source, super_locals, constant_pool)?;
+
+            let (right_instructions, right_type) =
+                parse_expression(&right, source, super_locals, constant_pool)?;
+
+            if left_type.matches(&right_type) {
+                return Err(format!(
+                    "Binary expression has mismatched types: {:?} and {:?}",
+                    left_type, right_type
+                ));
+            }
+
+            instructions.extend(left_instructions);
+            instructions.extend(right_instructions);
+            expression_type = left_type;
+
+            match operator.as_str() {
+                "+" => instructions.push(Instruction::Add(expression_type.clone())),
+                "-" => instructions.push(Instruction::Sub(expression_type.clone())),
+                "*" => instructions.push(Instruction::Mul(expression_type.clone())),
+                "/" => instructions.push(Instruction::Div(expression_type.clone())),
+                "%" => instructions.push(Instruction::Rem(expression_type.clone())),
+                _ => return Err(format!("Unknown binary operator {}", operator)),
             }
         }
         "parenthesized_expression" => {
-            instructions.append(&mut parse_expression(
-                &node.child(1).unwrap(),
-                source,
-                super_locals,
-                constant_pool,
-            ));
+            let expression = match node.child(1) {
+                Some(node) => node,
+                None => {
+                    return Err(String::from(
+                        "Parenthesized expression is missing expression",
+                    ))
+                }
+            };
+
+            return parse_expression(&expression, source, super_locals, constant_pool);
         }
         "method_invocation" => {
-            if node.child_count() < 3 {
-                // Do stuff
-                panic!("Method invocation not implemented for methods inside the same class");
-            }
-
-            // TODO: Implement method invocation for methods inside the same class
-
-            // TODO: Handle methods called using field access (e.g. System.out.println)
-            // For instance, a class which contains a static field populated by an object with methods
-
-            let class_or_object_name = node.child(0).unwrap().utf8_text(source).unwrap();
-            let method_name = node.child(2).unwrap().utf8_text(source).unwrap();
-            let arguments = get_child_node_by_kind(node, "argument_list");
-
-            // TODO: remove this or make it more generic
-            if node.child(0).unwrap().kind() == "field_access" {
-                instructions.append(&mut parse_expression(
-                    &get_child_node_by_kinds(node, vec!["field_access"]),
-                    source,
-                    super_locals,
-                    constant_pool,
-                ));
-            }
-
-            for i in 0..arguments.child_count() {
-                let argument = arguments.child(i).unwrap();
-
-                instructions.append(&mut parse_expression(
-                    &argument,
-                    source,
-                    super_locals,
-                    constant_pool,
-                ));
-            }
-
-            let arguments_count =
-                arguments.child_count() - 2 - get_child_nodes_by_kind(&arguments, ",").len();
-
-            // TODO: Handle methods with non-integer parameters and return values
-            let method_type = format!("({})I", "I".repeat(arguments_count));
-
-            // TODO: remove this or make it more generic
-            if class_or_object_name == "System.out" && method_name == "println" {
-                let index = constant_pool
-                    .find_method_ref("java/io/PrintStream", "println", "(I)V")
-                    .unwrap();
-
-                instructions.push(Instruction::InvokeVirtual(index as usize));
-
-                return instructions;
-            }
-
-            if super_locals.contains(&class_or_object_name.to_string()) {
-                let index = super_locals
-                    .iter()
-                    .position(|r| r == class_or_object_name)
-                    .unwrap();
-
-                instructions.push(Instruction::Load(index, PrimitiveType::Reference));
-
-                let method_index = constant_pool
-                    .find_method_ref(
-                        "Point", // TODO: Get class name
-                        method_name,
-                        "()I", // TODO: Get method type signature
-                    )
-                    .unwrap();
-
-                instructions.push(Instruction::InvokeVirtual(method_index as usize));
-            } else {
-                let method_index = constant_pool
-                    .find_method_ref(class_or_object_name, method_name, method_type.as_str())
-                    .unwrap();
-
-                instructions.push(Instruction::InvokeVirtual(method_index as usize));
-            }
+            todo!()
         }
         "object_creation_expression" => {
-            let class_name = get_child_node_by_kind(node, "type_identifier")
-                .utf8_text(source)
-                .unwrap();
+            let class_name = match node.child_by_kind("type_identifier") {
+                Some(node) => match node.utf8_text(source) {
+                    Ok(text) => text.to_string(),
+                    Err(err) => return Err(format!("Failed to parse class name: {}", err)),
+                },
+                None => {
+                    return Err(String::from(
+                        "Object creation expression is missing class name",
+                    ))
+                }
+            };
 
-            let class_index = constant_pool.find_class(class_name).unwrap();
+            let class_index = match constant_pool.to_vec().find_class(&class_name) {
+                Some(index) => index,
+                None => return Err(format!("Class {} not found in constant pool", class_name)),
+            };
 
             instructions.push(Instruction::New(class_index as usize));
-
             instructions.push(Instruction::Dup);
 
-            let arguments = get_child_node_by_kind(node, "argument_list");
-
-            for i in 0..arguments.child_count() {
-                let argument = arguments.child(i).unwrap();
-
-                instructions.append(&mut parse_expression(
-                    &argument,
-                    source,
-                    super_locals,
-                    constant_pool,
-                ));
-            }
-
-            let arguments_count =
-                arguments.child_count() - get_child_nodes_by_kind(&arguments, ",").len() - 2;
-
-            let method_type = format!("({})V", "I".repeat(arguments_count));
-
-            let method_index = constant_pool
-                .find_method_ref(class_name, "<init>", method_type.as_str())
-                .unwrap();
-
-            instructions.push(Instruction::InvokeSpecial(method_index as usize));
+            // TODO: finish this
         }
         "field_access" => {
-            let class_or_object_name = node.child(0).unwrap().utf8_text(source).unwrap();
-            let field_name = node.child(2).unwrap().utf8_text(source).unwrap();
-
-            if super_locals.contains(&class_or_object_name.to_string()) {
-                // The field is of a non-static type, as it's name is in the local variables
-
-                instructions.push(Instruction::Load(
-                    super_locals
-                        .iter()
-                        .position(|r| r == class_or_object_name)
-                        .unwrap(),
-                    PrimitiveType::Reference,
-                ));
-
-                let field_index = constant_pool
-                    .find_field_ref(
-                        "Point", // TODO: get the class name
-                        field_name, "I", // TODO: get the field type
-                    )
-                    .unwrap();
-
-                instructions.push(Instruction::GetField(field_index as usize));
-            } else {
-                // The field is of a static type
-
-                let field_index = constant_pool
-                    .find_field_ref(
-                        class_or_object_name,
-                        field_name,
-                        "I", // TODO: get the field type
-                    )
-                    .unwrap();
-
-                instructions.push(Instruction::GetStatic(field_index as usize));
-            }
+            todo!()
         }
-        _ => panic!("Unknown expression type {}", node.kind()),
+        _ => return Err(format!("Unknown expression type {}", node.kind())),
     }
 
-    instructions
+    Ok((instructions, expression_type))
 }
 
-fn parse_code_block(
-    node: &Node,
-    source: &[u8],
-    super_locals: Vec<String>,
-    constant_pool: &Vec<ConstantPoolEntry>,
-) -> Vec<Instruction> {
-    let mut instructions = vec![];
-    let mut locals = super_locals;
-
-    for i in 0..node.child_count() {
-        let child = node.child(i).unwrap();
-
-        match child.kind() {
-            "local_variable_declaration" => {
-                let variable_declarator = get_child_node_by_kind(&child, "variable_declarator");
-
-                let variable_name = get_child_node_by_kind(&variable_declarator, "identifier")
-                    .utf8_text(source)
-                    .unwrap()
-                    .to_string();
-
-                if variable_declarator.child_count() == 3 {
-                    instructions.append(&mut parse_expression(
-                        &variable_declarator.child(2).unwrap(),
-                        source,
-                        &locals,
-                        constant_pool,
-                    ));
-
-                    // instructions.push(Instruction::Store(locals.len(), PrimitiveType::Int));
-
-                    // TODO: Figure out what the type of the variable is
-
-                    instructions.push(Instruction::Store(locals.len(), PrimitiveType::Reference));
-                }
-
-                locals.push(variable_name);
-            }
-            "expression_statement" => {
-                let expression = child.child(0).unwrap();
-
-                match expression.kind() {
-                    "assignment_expression" => {
-                        if expression.child_count() == 3 {
-                            match expression.child(1).unwrap().kind() {
-                                "=" => {
-                                    instructions.append(&mut parse_expression(
-                                        &expression.child(2).unwrap(),
-                                        source,
-                                        &locals,
-                                        constant_pool,
-                                    ));
-                                    instructions.push(Instruction::Store(
-                                        locals
-                                            .iter()
-                                            .position(|r| {
-                                                r == expression
-                                                    .child(0)
-                                                    .unwrap()
-                                                    .utf8_text(source)
-                                                    .unwrap()
-                                            })
-                                            .unwrap(),
-                                        PrimitiveType::Int,
-                                    ));
-                                }
-                                "+=" => {
-                                    instructions.append(&mut parse_expression(
-                                        &expression.child(0).unwrap(),
-                                        source,
-                                        &locals,
-                                        constant_pool,
-                                    ));
-                                    instructions.append(&mut parse_expression(
-                                        &expression.child(2).unwrap(),
-                                        source,
-                                        &locals,
-                                        constant_pool,
-                                    ));
-                                    instructions.push(Instruction::Add(PrimitiveType::Int));
-                                    instructions.push(Instruction::Store(
-                                        locals
-                                            .iter()
-                                            .position(|r| {
-                                                r == expression
-                                                    .child(0)
-                                                    .unwrap()
-                                                    .utf8_text(source)
-                                                    .unwrap()
-                                            })
-                                            .unwrap(),
-                                        PrimitiveType::Int,
-                                    ));
-                                }
-                                _ => {
-                                    panic!(
-                                        "Unknown assignment operator {}",
-                                        expression.child(1).unwrap().utf8_text(source).unwrap()
-                                    );
-                                }
-                            }
-                        }
-                    }
-                    "method_invocation" => {
-                        instructions.append(&mut parse_expression(
-                            &expression,
-                            source,
-                            &locals,
-                            constant_pool,
-                        ));
-
-                        // instructions.append(&mut parse_expression(
-                        //     &get_child_node_by_kinds(
-                        //         &expression,
-                        //         vec!["argument_list", "identifier"],
-                        //     ),
-                        //     source,
-                        //     &locals,
-                        //     constant_pool,
-                        // ));
-                    }
-                    _ => {}
-                }
-            }
-            "if_statement" => {
-                let block_instructions = parse_code_block(
-                    &get_child_node_by_kind(&child, "block"),
-                    source,
-                    locals.clone(),
-                    constant_pool,
-                );
-
-                let instruction_block_length = block_instructions.len();
-            }
-            "return_statement" => {
-                instructions.append(&mut parse_expression(
-                    &child.child(1).unwrap(),
-                    source,
-                    &locals,
-                    constant_pool,
-                ));
-                // This is handled by the caller
-                // instructions.push(Instruction::Return(PrimitiveType::Int));
-            }
-            _ => {}
-        }
-    }
-
-    instructions
-}
-
-fn parse_method_args(node: &Node, source: &[u8]) -> (String, Vec<String>, Vec<PrimitiveType>) {
-    let formal_parameters = get_child_node_by_kind(node, "formal_parameters");
-
-    let mut parameters = String::new();
-    let mut parameter_names = vec![];
-    let mut parameter_types = vec![];
-
-    parameters.push('(');
-
-    let formal_params_to_parse = if formal_parameters.child_count() >= 3 {
-        // This is a bit of a hack, but it works for now
-        vec![
-            get_child_nodes_by_kind(&formal_parameters, "formal_parameter")
-                .into_iter()
-                .map(|n| n.child(0).unwrap())
-                .collect(),
-            vec![node.child(1).unwrap()],
-        ]
-        .into_iter()
-        .flatten()
-        .collect()
-    } else {
-        vec![node.child(1).unwrap()]
-    };
-
-    for i in 0..formal_params_to_parse.len() {
-        let parameter = formal_params_to_parse.get(i).unwrap();
-
-        match parameter.kind() {
-            "integral_type" => match parameter.child(0).unwrap().kind() {
-                "byte" => {
-                    parameters.push('B');
-                    parameter_types.push(PrimitiveType::Byte);
-                }
-                "short" => {
-                    parameters.push('S');
-                    parameter_types.push(PrimitiveType::Short);
-                }
-                "int" => {
-                    parameters.push('I');
-                    parameter_types.push(PrimitiveType::Int);
-                }
-                "long" => {
-                    parameters.push('J');
-                    parameter_types.push(PrimitiveType::Long);
-                }
-                "char" => {
-                    parameters.push('C');
-                    parameter_types.push(PrimitiveType::Char);
-                }
-                _ => panic!(
-                    "Unknown integral type {}",
-                    parameter.child(0).unwrap().kind()
-                ),
-            },
-            "floating_point_type" => match parameter.child(0).unwrap().kind() {
-                "float" => {
-                    parameters.push('F');
-                    parameter_types.push(PrimitiveType::Float);
-                }
-                "double" => {
-                    parameters.push('D');
-                    parameter_types.push(PrimitiveType::Double);
-                }
-                _ => panic!(
-                    "Unknown floating point type {}",
-                    parameter.child(0).unwrap().kind()
-                ),
-            },
-            "boolean_type" => {
-                parameters.push('Z');
-                // There is no boolean primitive type
-                // parameter_types.push(PrimitiveType::Boolean);
-            }
-            "array_type" => {
-                parameters.push('[');
-                // TODO: actually parse the array type
-                parameters.push_str("Ljava/lang/String;");
-                parameter_types.push(PrimitiveType::Reference);
-            }
-            "void_type" => {
-                parameters.push('V');
-                parameter_types.push(PrimitiveType::Null);
-            }
-            _ => {
-                panic!("Unknown parameter type {}", parameter.kind());
-            }
-        }
-
-        if i < formal_params_to_parse.len() - 1 {
-            parameter_names.push(
-                parameter
-                    .parent()
-                    .unwrap()
-                    .child(1)
-                    .unwrap()
-                    .utf8_text(source)
-                    .unwrap()
-                    .to_string(),
-            );
-        }
-    }
-
-    let c = parameters.pop().unwrap();
-
-    parameters.push(')');
-    parameters.push(c);
-
-    (parameters, parameter_names, parameter_types)
-}
-
-fn parse_method(
-    node: &Node,
-    source: &[u8],
-    constant_pool: &Vec<ConstantPoolEntry>,
-) -> (String, Method) {
-    let mut method_name = get_child_node_by_kind(node, "identifier")
-        .utf8_text(source)
-        .unwrap()
-        .to_string();
-
-    let (parameters, parameter_names, _parameter_types) = parse_method_args(node, source);
-
-    method_name.push_str(parameters.as_str());
-
-    let method_code_block = get_child_node_by_kind(node, "block");
-
-    let mut instructions =
-        parse_code_block(&method_code_block, source, parameter_names, constant_pool);
-
-    let c = method_name.chars().last().unwrap();
-
-    instructions.push(Instruction::Return(match c {
-        'V' => PrimitiveType::Null,
-        'B' => PrimitiveType::Byte,
-        'S' => PrimitiveType::Short,
-        'I' => PrimitiveType::Int,
-        'J' => PrimitiveType::Long,
-        'C' => PrimitiveType::Char,
-        'F' => PrimitiveType::Float,
-        'D' => PrimitiveType::Double,
-        // Missing boolean ('Z') support
-        _ => {
-            panic!("unsupported return type character")
-        }
-    }));
-
-    let method = Method { instructions };
-
-    (method_name, method)
-}
-
-fn find_invocations(root_node: &Node, source: &[u8], class: &mut Class) {
-    let mut stack = vec![*root_node];
-
-    let mut invocations = vec![];
-
-    let mut param_names_and_types = HashMap::new();
-
-    while let Some(node) = stack.pop() {
-        match node.kind() {
-            "method_invocation" | "field_access" => {
-                invocations.push(node);
-            }
-            "type_identifier" => {
-                invocations.push(node);
-
-                let mut name_node = node.parent().unwrap();
-
-                while name_node.kind() == "array_type" {
-                    name_node = name_node.parent().unwrap();
-                }
-
-                if name_node.kind() == "object_creation_expression" {
-                    continue;
-                }
-
-                if name_node.kind() == "local_variable_declaration" {
-                    name_node = get_child_node_by_kinds(
-                        &name_node,
-                        ["variable_declarator", "identifier"].to_vec(),
-                    );
-                } else {
-                    name_node = get_child_node_by_kind(&name_node, "identifier");
-                }
-
-                let name = name_node.utf8_text(source).unwrap().to_string();
-                let var_type = node.utf8_text(source).unwrap().to_string();
-
-                param_names_and_types.insert(name, var_type);
-            }
-            _ => {}
-        }
-
-        for i in 0..node.child_count() {
-            stack.push(node.child(i).unwrap());
-        }
-    }
-
-    invocations.reverse();
-
-    let mut constant_pool = vec![];
-
-    for access_node in invocations {
-        match access_node.kind() {
-            "type_identifier" => {
-                let class_name = access_node.utf8_text(source).unwrap();
-                let _class_index = constant_pool.find_or_add_class(class_name);
-
-                if access_node.parent().unwrap().kind() == "object_creation_expression" {
-                    let method_name = "<init>";
-
-                    let argument_list_node =
-                        get_child_node_by_kind(&access_node.parent().unwrap(), "argument_list");
-
-                    let argument_count = argument_list_node.child_count()
-                        - get_child_nodes_by_kind(&argument_list_node, ",").len()
-                        - 2;
-
-                    let method_type = format!("({})V", "I".repeat(argument_count as usize));
-
-                    let _method_index = constant_pool.find_or_add_method_ref(
-                        class_name,
-                        method_name,
-                        method_type.as_str(),
-                    );
-                }
-            }
-            "field_access" => {
-                let class_or_object_name = access_node
-                    .child(0)
-                    .unwrap()
-                    .utf8_text(source)
-                    .unwrap()
-                    .to_string();
-
-                let field_name = access_node
-                    .child(2)
-                    .unwrap()
-                    .utf8_text(source)
-                    .unwrap()
-                    .to_string();
-
-                if param_names_and_types.contains_key(&class_or_object_name) {
-                    let field_type = param_names_and_types.get(&class_or_object_name).unwrap();
-
-                    let _field_index = constant_pool.find_or_add_field_ref(
-                        field_type,
-                        &field_name,
-                        "I", // TODO: get the type from the field
-                    );
-                } else {
-                    let _field_index = constant_pool.find_or_add_field_ref(
-                        &class_or_object_name,
-                        &field_name,
-                        "I",
-                    );
-                }
-            }
-            "method_invocation" => {
-                // TODO: actually find the method signature
-
-                if access_node.child_count() < 3 {
-                    let method_name = access_node
-                        .child(0)
-                        .unwrap()
-                        .utf8_text(source)
-                        .unwrap()
-                        .to_string();
-
-                    let method_args = get_child_node_by_kind(&access_node, "argument_list");
-                    let method_arg_count = method_args.child_count()
-                        - get_child_nodes_by_kind(&method_args, ",").len()
-                        - 2;
-                    let method_type = format!("({})I", "I".repeat(method_arg_count));
-
-                    let _method_index = constant_pool.find_or_add_method_ref(
-                        &class.name,
-                        &method_name,
-                        &method_type,
-                    );
-
-                    continue;
-                }
-
-                let class_or_object_name = access_node
-                    .child(0)
-                    .unwrap()
-                    .utf8_text(source)
-                    .unwrap()
-                    .to_string();
-
-                let method_name = access_node
-                    .child(2)
-                    .unwrap()
-                    .utf8_text(source)
-                    .unwrap()
-                    .to_string();
-
-                let method_args = get_child_node_by_kind(&access_node, "argument_list");
-                let method_arg_count = method_args.child_count()
-                    - get_child_nodes_by_kind(&method_args, ",").len()
-                    - 2;
-                let method_type = format!("({})I", "I".repeat(method_arg_count));
-
-                // TODO: remove this
-                if method_name == "println" {
-                    let _method_index = constant_pool.find_or_add_method_ref(
-                        "java/io/PrintStream",
-                        &method_name,
-                        "(I)V",
-                    );
-
-                    continue;
-                }
-
-                if param_names_and_types.contains_key(&class_or_object_name) {
-                    let class_type = param_names_and_types.get(&class_or_object_name).unwrap();
-
-                    let _method_index = constant_pool.find_or_add_method_ref(
-                        class_type,
-                        &method_name,
-                        &method_type,
-                    );
-                } else {
-                    let _method_index = constant_pool.find_or_add_method_ref(
-                        &class_or_object_name,
-                        &method_name,
-                        &method_type,
-                    );
-                }
-            }
-            _ => {}
-        }
-    }
-
-    class.constant_pool = constant_pool;
-}
-
-fn parse_class(node: &Node, source: &[u8]) -> Class {
-    let name = get_child_node_by_kind(node, "identifier")
-        .utf8_text(source)
-        .unwrap()
-        .to_string();
-
-    let mut class = Class {
-        name,
-        constant_pool: vec![],
-        static_fields: HashMap::new(),
-        methods: HashMap::new(),
-    };
-
-    find_invocations(node, source, &mut class);
-
-    let class_body = get_child_node_by_kind(node, "class_body");
-
-    let unparsed_methods = get_child_nodes_by_kind(&class_body, "method_declaration");
-
-    let mut methods = HashMap::new();
-
-    for method in unparsed_methods {
-        let (method_name, method) = parse_method(&method, source, &class.constant_pool);
-
-        methods.insert(method_name, method);
-    }
-
-    class.methods = methods;
-
-    class
-}
-
-pub fn parse_java_code_to_classes(code: String) -> Vec<Class> {
+pub fn parse_to_class(code: String) -> Result<Vec<Class>, String> {
     let mut parser = Parser::new();
     parser
         .set_language(tree_sitter_java::language())
         .expect("Error loading Java grammar");
-    let tree = parser.parse(&code, None).unwrap();
+    let tree = parser.parse(&code, None).expect("Error parsing Java code");
 
-    pretty_print_tree(&tree.root_node());
+    let root_node = tree.root_node();
+    let source = code.as_bytes();
+
+    root_node.print_tree();
     println!();
 
-    let mut classes = Vec::new();
+    let class = root_node.child_by_kind("class_declaration").unwrap();
+    let class_body = class.child_by_kind("class_body").unwrap();
 
-    for i in 0..tree.root_node().child_count() {
-        let node = tree.root_node().child(i).unwrap();
+    println!("Methods: {:?}", generate_method_list(&class_body, source));
 
-        if node.kind() == "class_declaration" {
-            classes.push(parse_class(&node, code.as_bytes()));
-        }
-    }
-
-    classes
+    Err(String::from("Not implemented"))
 }

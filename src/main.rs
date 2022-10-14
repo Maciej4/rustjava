@@ -4,7 +4,7 @@ mod bytecode;
 mod class_file_parser;
 mod java_class;
 mod javac;
-mod javac2;
+mod javac_old;
 mod jvm;
 mod reader;
 
@@ -53,7 +53,7 @@ fn main() {
 
     let code = include_str!("java_tests/Add.java");
     // let mut classes = javac::parse_java_code_to_classes(code.to_string());
-    let mut classes = javac2::parse_to_class(code.to_string());
+    let mut classes = javac::parse_to_class(code.to_string());
 
     // classes.push(class_file_parser::parse_file_to_class(
     //     ".\\src\\java_tests\\Point.class".to_string(),
