@@ -4,7 +4,7 @@ The goal of this project is to implement a small subset of the JVM in Rust to le
 
 # Next Steps
 * [ ] Parse reasonably complex if statements
-* [ ] Re-implement the parser in a better way.
+* [x] Re-implement the parser in a better way.
   * Pre-search all java files for methods and parse their signatures. This will be useful for constant pool generation.
   * Combine the constant pool generation and the parsing of the code into one pass. This will allow for the type checking to be shared between the two.
   * Handle the parsing of sub blocks (if, for, while, etc...) in a better way.
@@ -36,8 +36,8 @@ The goal of this project is to implement a small subset of the JVM in Rust to le
 * [ ] Garbage collection
 * [ ] Java to JVM bytecode compiler
   * [x] Code parsing into AST (using tree sitter)
-  * [ ] Constant pool generation
-  * [ ] Local variable stores and loads
+  * [x] Constant pool generation
+  * [x] Local variable stores and loads
   * [ ] Stack manipulation
   * [ ] Method calls
   * [ ] Handling improper code

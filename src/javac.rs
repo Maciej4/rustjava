@@ -370,10 +370,16 @@ fn parse_expression(
             }
         }
         "assignment_expression" | "variable_declarator" => {
-            let variable_index = match super_locals.find_local(node.name_from_identifier(source)?.as_str()) {
-                Some(index) => index,
-                None => return Err(format!("Local variable {} not found", node.name_from_identifier(source)?)),
-            };
+            let variable_index =
+                match super_locals.find_local(node.name_from_identifier(source)?.as_str()) {
+                    Some(index) => index,
+                    None => {
+                        return Err(format!(
+                            "Local variable {} not found",
+                            node.name_from_identifier(source)?
+                        ))
+                    }
+                };
             let variable_type = super_locals.get_local_type(&variable_index)?;
 
             let expression_node = match node.child(2) {
@@ -392,14 +398,19 @@ fn parse_expression(
 
             instructions.extend(expression_instructions);
             if !variable_type.matches(&expr_type) {
-                return Err(format!("Assignment expression type mismatch: {:?} != {:?}", variable_type, expr_type));
+                return Err(format!(
+                    "Assignment expression type mismatch: {:?} != {:?}",
+                    variable_type, expr_type
+                ));
             }
             expression_type = variable_type.clone();
 
             let operator = match node.child(1) {
                 Some(node) => match node.utf8_text(source) {
                     Ok(text) => text,
-                    Err(err) => return Err(format!("Failed to parse assignment operator: {}", err)),
+                    Err(err) => {
+                        return Err(format!("Failed to parse assignment operator: {}", err))
+                    }
                 },
                 None => return Err(String::from("Assignment expression is missing operator")),
             };
@@ -414,7 +425,7 @@ fn parse_expression(
                     "*=" => Instruction::Mul(variable_type_clone),
                     "/=" => Instruction::Div(variable_type_clone),
                     "%=" => Instruction::Rem(variable_type_clone),
-                    _ => {return Err(format!("Unknown assignment operator: {}", operator))}
+                    _ => return Err(format!("Unknown assignment operator: {}", operator)),
                 });
             }
 
@@ -598,8 +609,8 @@ fn parse_expression(
                 };
 
                 let method_partial_signature = format!("{}{}", method_name, method_params);
-                let method =
-                    parser_context.find_method_by_params(current_class, &method_partial_signature)?;
+                let method = parser_context
+                    .find_method_by_params(current_class, &method_partial_signature)?;
 
                 let method_descriptor =
                     format!("{}{}", method_params, method.return_type.as_letter());
@@ -672,8 +683,8 @@ fn parse_expression(
                         }
                     };
 
-                    let method =
-                        parser_context.find_method_by_params(&class_name, &method_partial_signature)?;
+                    let method = parser_context
+                        .find_method_by_params(&class_name, &method_partial_signature)?;
 
                     let method_descriptor =
                         format!("{}{}", method_params, method.return_type.as_letter());
@@ -896,7 +907,7 @@ fn parse_method(
         }
     }
 
-    Ok(Method {instructions})
+    Ok(Method { instructions })
 }
 
 fn parse_class(
