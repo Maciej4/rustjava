@@ -55,14 +55,20 @@ fn main() {
 
     let code = include_str!("java_tests/Add.java");
     // let mut classes = javac::parse_java_code_to_classes(code.to_string());
-    let mut classes = javac::parse_to_class(code.to_string());
+    let classes = match javac::parse_to_class(code.to_string()) {
+        Ok(classes) => classes,
+        Err(e) => {
+            println!("Error: {}", e);
+            return;
+        }
+    };
 
     // classes.push(class_file_parser::parse_file_to_class(
     //     ".\\src\\java_tests\\Point.class".to_string(),
     // ));
 
-    // println!("jvm has classes: {:?}", classes);
-    // let mut jvm = jvm::Jvm::new(classes);
-    // println!();
-    // jvm.run();
+    println!("jvm has classes: {:?}", classes);
+    let mut jvm = jvm::Jvm::new(classes);
+    println!("\nRunning JVM:");
+    jvm.run();
 }
