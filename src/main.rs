@@ -6,7 +6,6 @@ mod bytecode;
 mod class_file_parser;
 mod java_class;
 mod javac;
-mod javac_old;
 mod jvm;
 mod reader;
 
