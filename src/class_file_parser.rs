@@ -343,7 +343,6 @@ pub fn bytes_to_bytecode(code: Vec<u8>) -> Vec<Instruction> {
             39 => Instruction::Load(1, PrimitiveType::Double),
             40 => Instruction::Load(2, PrimitiveType::Double),
             41 => Instruction::Load(3, PrimitiveType::Double),
-            // TODO: Need to somehow unity array and object references
             42 => Instruction::Load(0, PrimitiveType::Reference),
             43 => Instruction::Load(1, PrimitiveType::Reference),
             44 => Instruction::Load(2, PrimitiveType::Reference),

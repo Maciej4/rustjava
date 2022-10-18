@@ -18,39 +18,46 @@ pub struct StackFrame {
 }
 
 impl StackFrame {
-    pub fn math(&mut self, operand_type: PrimitiveType, o: Operator) {
-        let value2 = self.pop_primitive();
-        let value1 = self.pop_primitive();
+    pub fn math(&mut self, operand_type: PrimitiveType, o: Operator) -> Result<(), String> {
+        let value2 = self.pop_primitive()?;
+        let value1 = self.pop_primitive()?;
 
         if !value1.is_type(operand_type) {
-            panic!("mismatched operand type for stack frame math function");
+            return Err(String::from(
+                "mismatched operand type for stack frame math function",
+            ));
         }
 
-        self.stack.push(Primitive::eval2(value1, value2, o));
+        self.stack.push(Primitive::eval2(value1, value2, o)?);
+
+        Ok(())
     }
 
-    pub fn pop_primitive(&mut self) -> Primitive {
-        self.stack.pop().expect("empty stack")
-    }
-
-    pub fn pop_int(&mut self) -> i32 {
-        match self.pop_primitive() {
-            Primitive::Int(x) => x,
-            _ => panic!("pop_int on non-int type"),
-        }
-    }
-
-    pub fn pop_long(&mut self) -> i64 {
-        match self.pop_primitive() {
-            Primitive::Long(x) => x,
-            _ => panic!("pop_long on non-long type"),
+    pub fn pop_primitive(&mut self) -> Result<Primitive, String> {
+        match self.stack.pop() {
+            Some(p) => Ok(p),
+            None => Err("Stack is empty".to_string()),
         }
     }
 
-    pub fn pop_ref(&mut self) -> usize {
-        match self.pop_primitive() {
-            Primitive::Reference(x) => x,
-            _ => panic!("pop_ref on non-reference type"),
+    pub fn pop_int(&mut self) -> Result<i32, String> {
+        match self.pop_primitive()? {
+            Primitive::Int(i) => Ok(i),
+            _ => Err("Expected int when popping from stack".to_string()),
+        }
+    }
+
+    pub fn pop_long(&mut self) -> Result<i64, String> {
+        match self.pop_primitive()? {
+            Primitive::Long(i) => Ok(i),
+            _ => Err("Expected long when popping from stack".to_string()),
+        }
+    }
+
+    pub fn pop_ref(&mut self) -> Result<usize, String> {
+        match self.pop_primitive()? {
+            Primitive::Reference(r) => Ok(r),
+            _ => Err("Expected reference when popping from stack".to_string()),
         }
     }
 }
@@ -90,11 +97,29 @@ impl Jvm {
         }
     }
 
-    pub fn run(&mut self) {
+    pub fn stack_trace(&self, exception: String) -> String {
+        println!("jvm {:?}", self);
+
+        let mut trace = format!("Exception {}\n", exception);
+
+        for sf in self.stack_frames.iter().rev() {
+            trace.push_str(&format!(
+                "   at project.class.method(source.java:pc {:?})\n",
+                sf.pc
+            ));
+        }
+
+        trace
+    }
+
+    pub fn run(&mut self) -> Result<(), String> {
         // Find the main method and push it onto the stack for execution
         for class in self.class_area.values() {
             if class.methods.contains_key("main([Ljava/lang/String;)V") {
-                let main_method = class.methods.get("main([Ljava/lang/String;)V").unwrap();
+                let main_method = match class.methods.get("main([Ljava/lang/String;)V") {
+                    Some(m) => m,
+                    None => return Err("Could not find main method".to_string()),
+                };
 
                 let stack_frame = StackFrame {
                     pc: 0,
@@ -112,7 +137,7 @@ impl Jvm {
         // Perform static initialization for all classes
         for class in self.class_area.values() {
             if class.methods.contains_key("<clinit>()V") {
-                let method = class.methods["<clinit>()V"].clone();
+                let method = class.methods.get("<clinit>()V").unwrap().clone();
 
                 self.stack_frames.push(StackFrame {
                     pc: 0,
@@ -126,19 +151,21 @@ impl Jvm {
         }
 
         while !self.stack_frames.is_empty() {
-            self.step();
+            self.step()?;
         }
+
+        Ok(())
     }
 
-    pub fn step(&mut self) {
-        let current_stack_frame_index = self.stack_frames.len() - 1;
-        let curr_sf = &mut self.stack_frames[current_stack_frame_index];
-        let instruction = curr_sf.method.instructions[curr_sf.pc].clone();
-
-        if let Instruction::Nop = instruction {
-            curr_sf.pc += 1;
-            return;
-        }
+    pub fn step(&mut self) -> Result<(), String> {
+        let curr_sf = match self.stack_frames.last_mut() {
+            Some(sf) => sf,
+            None => return Err(String::from("No stack frames")),
+        };
+        let instruction = match curr_sf.method.instructions.get(curr_sf.pc) {
+            Some(i) => i.clone(),
+            None => return Err(String::from("No instruction at current pc")),
+        };
 
         // let indent = " ".repeat(current_stack_frame_index * 2);
         // println!("{}stack: {:?}", indent, curr_sf.stack);
@@ -153,31 +180,37 @@ impl Jvm {
             Instruction::Const(value) => curr_sf.stack.push(value),
             Instruction::LoadConst(index) => {
                 curr_sf.stack.push(
-                    self.class_area[&curr_sf.class_name].constant_pool[index - 1].get_primitive(),
+                    self.class_area
+                        .get(&curr_sf.class_name)
+                        .unwrap()
+                        .constant_pool
+                        .get(index - 1)
+                        .unwrap()
+                        .get_primitive()?,
                 );
             }
             // TODO: Check that the stored or loaded type matches the expected type
-            Instruction::Load(index, _type_to_load) => {
-                curr_sf.stack.push(curr_sf.locals[index].clone())
-            }
+            Instruction::Load(index, _type_to_load) => curr_sf
+                .stack
+                .push(curr_sf.locals.get(index).unwrap().clone()),
             Instruction::ALoad(_stored_type) => {
-                let index = curr_sf.pop_int();
-                let array_ref = curr_sf.pop_ref();
+                let index = curr_sf.pop_int()?;
+                let array_ref = curr_sf.pop_ref()?;
 
                 let array = curr_sf.arrays.get(array_ref).expect("array not found");
-                let value = array[index as usize].clone();
+                let value = array.get(index as usize).unwrap().clone();
                 curr_sf.stack.push(value);
             }
             Instruction::Store(index, _type_to_store) => {
                 if curr_sf.locals.len() <= index {
                     curr_sf.locals.resize(index + 1, Primitive::Null)
                 };
-                curr_sf.locals[index] = curr_sf.pop_primitive()
+                curr_sf.locals[index] = curr_sf.pop_primitive()?;
             }
             Instruction::AStore(_stored_type) => {
-                let value = curr_sf.pop_primitive();
-                let index = curr_sf.pop_int();
-                let array_ref = curr_sf.pop_ref();
+                let value = curr_sf.pop_primitive()?;
+                let index = curr_sf.pop_int()?;
+                let array_ref = curr_sf.pop_ref()?;
 
                 let array = curr_sf.arrays.get_mut(array_ref).expect("array not found");
 
@@ -191,45 +224,45 @@ impl Jvm {
                 curr_sf.stack.pop();
             }
             Instruction::Pop2 => {
-                if !curr_sf.pop_primitive().is_wide() {
+                if !curr_sf.pop_primitive()?.is_wide() {
                     curr_sf.stack.pop();
                 }
             }
             // TODO: Dup instructions interact with wide types differently
             Instruction::Dup => {
-                let value = curr_sf.pop_primitive();
+                let value = curr_sf.pop_primitive()?;
                 curr_sf.stack.push(value.clone());
                 curr_sf.stack.push(value);
             }
             Instruction::DupX1 => {
-                let value2 = curr_sf.pop_primitive();
-                let value1 = curr_sf.pop_primitive();
+                let value2 = curr_sf.pop_primitive()?;
+                let value1 = curr_sf.pop_primitive()?;
 
                 curr_sf.stack.push(value2.clone());
                 curr_sf.stack.push(value1);
                 curr_sf.stack.push(value2);
             }
             Instruction::DupX2 => {
-                let value3 = curr_sf.pop_primitive();
-                let value2 = curr_sf.pop_primitive();
-                let value1 = curr_sf.pop_primitive();
+                let value3 = curr_sf.pop_primitive()?;
+                let value2 = curr_sf.pop_primitive()?;
+                let value1 = curr_sf.pop_primitive()?;
                 curr_sf.stack.push(value3.clone());
                 curr_sf.stack.push(value1);
                 curr_sf.stack.push(value2);
                 curr_sf.stack.push(value3);
             }
             Instruction::Dup2 => {
-                let value2 = curr_sf.pop_primitive();
-                let value1 = curr_sf.pop_primitive();
+                let value2 = curr_sf.pop_primitive()?;
+                let value1 = curr_sf.pop_primitive()?;
                 curr_sf.stack.push(value1.clone());
                 curr_sf.stack.push(value2.clone());
                 curr_sf.stack.push(value1);
                 curr_sf.stack.push(value2);
             }
             Instruction::Dup2X1 => {
-                let value3 = curr_sf.pop_primitive();
-                let value2 = curr_sf.pop_primitive();
-                let value1 = curr_sf.pop_primitive();
+                let value3 = curr_sf.pop_primitive()?;
+                let value2 = curr_sf.pop_primitive()?;
+                let value1 = curr_sf.pop_primitive()?;
                 curr_sf.stack.push(value2.clone());
                 curr_sf.stack.push(value3.clone());
                 curr_sf.stack.push(value1);
@@ -237,10 +270,10 @@ impl Jvm {
                 curr_sf.stack.push(value3);
             }
             Instruction::Dup2X2 => {
-                let value4 = curr_sf.pop_primitive();
-                let value3 = curr_sf.pop_primitive();
-                let value2 = curr_sf.pop_primitive();
-                let value1 = curr_sf.pop_primitive();
+                let value4 = curr_sf.pop_primitive()?;
+                let value3 = curr_sf.pop_primitive()?;
+                let value2 = curr_sf.pop_primitive()?;
+                let value1 = curr_sf.pop_primitive()?;
                 curr_sf.stack.push(value3.clone());
                 curr_sf.stack.push(value4.clone());
                 curr_sf.stack.push(value1);
@@ -249,40 +282,39 @@ impl Jvm {
                 curr_sf.stack.push(value4);
             }
             Instruction::Swap => {
-                let top = curr_sf.pop_primitive();
-                let second = curr_sf.pop_primitive();
+                let top = curr_sf.pop_primitive()?;
+                let second = curr_sf.pop_primitive()?;
                 curr_sf.stack.push(top);
                 curr_sf.stack.push(second);
             }
-            Instruction::Add(operand_type) => curr_sf.math(operand_type, Operator::Add),
-            Instruction::Sub(operand_type) => curr_sf.math(operand_type, Operator::Sub),
-            Instruction::Mul(operand_type) => curr_sf.math(operand_type, Operator::Mul),
-            Instruction::Div(operand_type) => curr_sf.math(operand_type, Operator::Div),
-            Instruction::Rem(operand_type) => curr_sf.math(operand_type, Operator::Rem),
-            Instruction::Neg(operand_type) => curr_sf.math(operand_type, Operator::Neg),
-            Instruction::Shl(operand_type) => curr_sf.math(operand_type, Operator::Shl),
-            Instruction::Shr(operand_type) => curr_sf.math(operand_type, Operator::Shr),
-            Instruction::UShr(operand_type) => curr_sf.math(operand_type, Operator::UShr),
-            Instruction::And(operand_type) => curr_sf.math(operand_type, Operator::And),
-            Instruction::Or(operand_type) => curr_sf.math(operand_type, Operator::Or),
-            Instruction::Xor(operand_type) => curr_sf.math(operand_type, Operator::Xor),
+            Instruction::Add(operand_type) => curr_sf.math(operand_type, Operator::Add)?,
+            Instruction::Sub(operand_type) => curr_sf.math(operand_type, Operator::Sub)?,
+            Instruction::Mul(operand_type) => curr_sf.math(operand_type, Operator::Mul)?,
+            Instruction::Div(operand_type) => curr_sf.math(operand_type, Operator::Div)?,
+            Instruction::Rem(operand_type) => curr_sf.math(operand_type, Operator::Rem)?,
+            Instruction::Neg(operand_type) => curr_sf.math(operand_type, Operator::Neg)?,
+            Instruction::Shl(operand_type) => curr_sf.math(operand_type, Operator::Shl)?,
+            Instruction::Shr(operand_type) => curr_sf.math(operand_type, Operator::Shr)?,
+            Instruction::UShr(operand_type) => curr_sf.math(operand_type, Operator::UShr)?,
+            Instruction::And(operand_type) => curr_sf.math(operand_type, Operator::And)?,
+            Instruction::Or(operand_type) => curr_sf.math(operand_type, Operator::Or)?,
+            Instruction::Xor(operand_type) => curr_sf.math(operand_type, Operator::Xor)?,
             Instruction::IInc(index, constant) => {
                 curr_sf.locals[index] = Primitive::eval2(
-                    curr_sf.locals[index].clone(),
+                    curr_sf.locals.get(index).unwrap().clone(),
                     Primitive::Int(constant as i32),
                     Operator::Add,
-                );
+                )?;
             }
             Instruction::Convert(start_type, end_type) => {
-                let converted = Primitive::eval(
-                    curr_sf.pop_primitive(),
-                    Operator::Convert(start_type, end_type),
-                );
+                let converted = curr_sf
+                    .pop_primitive()?
+                    .eval(Operator::Convert(start_type, end_type))?;
                 curr_sf.stack.push(converted);
             }
             Instruction::LCmp => {
-                let second = curr_sf.pop_long();
-                let first = curr_sf.pop_long();
+                let second = curr_sf.pop_long()?;
+                let first = curr_sf.pop_long()?;
 
                 let result = match first - second {
                     0 => 0,
@@ -297,35 +329,35 @@ impl Jvm {
             // Instruction::DCmpL => {}
             // Instruction::DCmpG => {}
             Instruction::If(branch_offset, comparator) => {
-                if Primitive::compare_to_zero(curr_sf.pop_primitive(), comparator) {
+                if Primitive::compare_to_zero(curr_sf.pop_primitive()?, comparator)? {
                     curr_sf.pc += branch_offset;
-                    return;
+                    return Ok(());
                 }
             }
             Instruction::IfICmp(branch_offset, comparator) => {
-                let value2 = curr_sf.pop_primitive();
-                let value1 = curr_sf.pop_primitive();
+                let value2 = curr_sf.pop_primitive()?;
+                let value1 = curr_sf.pop_primitive()?;
 
-                if Primitive::integer_compare(value1, value2, comparator) {
+                if Primitive::integer_compare(value1, value2, comparator)? {
                     curr_sf.pc += branch_offset;
-                    return;
+                    return Ok(());
                 }
             }
             Instruction::Goto(branch_offset) => {
                 curr_sf.pc += branch_offset;
-                return;
+                return Ok(());
             }
             Instruction::Jsr(branch_offset) => {
                 curr_sf.stack.push(Primitive::Reference(curr_sf.pc + 1));
                 curr_sf.pc += branch_offset;
-                return;
+                return Ok(());
             }
             Instruction::Ret(index) => {
-                curr_sf.pc = match curr_sf.locals[index] {
-                    Primitive::Reference(x) => x,
-                    _ => panic!("invalid return address"),
+                curr_sf.pc = match curr_sf.locals.get(index).unwrap() {
+                    Primitive::Reference(x) => *x,
+                    _ => return Err(String::from("Invalid return address")),
                 };
-                return;
+                return Ok(());
             }
             // Instruction::TableSwitch(usize, usize, usize) => {}, // TODO: Implement table switch and lookup switch
             // Instruction::LookupSwitch(usize, usize, usize) => {},
@@ -333,10 +365,13 @@ impl Jvm {
                 if matches!(expected_return_type, PrimitiveType::Null) {
                     self.stack_frames.pop();
                 } else {
-                    let return_value = curr_sf.pop_primitive();
+                    let return_value = curr_sf.pop_primitive()?;
+
+                    // TODO: remove once stack trace is implemented
+                    // return Err(String::from("Attempted to return an invalid type"));
 
                     if !return_value.is_type(expected_return_type) {
-                        panic!("attempted to return an invalid type");
+                        return Err(String::from("Attempted to return an invalid type"));
                     }
 
                     self.stack_frames.pop();
@@ -349,96 +384,162 @@ impl Jvm {
                     }
                 }
 
-                return;
+                return Ok(());
             }
             Instruction::GetStatic(index) => {
-                let (class_name, field_name, _field_type) = self.class_area[&curr_sf.class_name]
+                let (class_name, field_name, _field_type) = match self
+                    .class_area
+                    .get(&curr_sf.class_name)
+                    .unwrap()
                     .constant_pool
                     .field_ref_parser(&index)
-                    .unwrap();
+                {
+                    Some(x) => x,
+                    None => {
+                        return Err(String::from("Invalid static field reference for GetStatic"))
+                    }
+                };
 
                 if self.class_area.contains_key(&class_name) {
-                    let value = self.class_area[&class_name].static_fields[&field_name].clone();
-
+                    let value = self
+                        .class_area
+                        .get(&class_name)
+                        .unwrap()
+                        .static_fields
+                        .get(&field_name)
+                        .unwrap()
+                        .clone();
                     curr_sf.stack.push(value);
                 } else {
-                    // TODO: handle the case where the static field is not found
-
-                    // println!("Unable to find static field {}/{} : {}", class_name, field_name, _field_type);
+                    // TODO: Remove
+                    if class_name == "java/lang/System" {
+                        // Do nothing
+                    } else {
+                        return Err(format!(
+                            "Unable to find static field {}.{}",
+                            class_name, field_name
+                        ));
+                    }
                 }
             }
             Instruction::PutStatic(index) => {
-                let value = curr_sf.pop_primitive();
+                let value = curr_sf.pop_primitive()?;
 
-                let (class_name, field_name, _field_type) = self.class_area[&curr_sf.class_name]
+                let (class_name, field_name, _field_type) = match self
+                    .class_area
+                    .get(&curr_sf.class_name)
+                    .unwrap()
                     .constant_pool
                     .field_ref_parser(&index)
-                    .unwrap();
+                {
+                    Some(x) => x,
+                    None => {
+                        return Err(String::from("Invalid static field reference for PutStatic"))
+                    }
+                };
 
-                self.class_area
-                    .get_mut(&class_name)
-                    .unwrap()
-                    .static_fields
-                    .insert(field_name, value);
+                match self.class_area.get_mut(&class_name) {
+                    Some(ca) => ca.static_fields.insert(field_name, value),
+                    None => return Err(String::from("Unable to find class")),
+                };
             }
             Instruction::GetField(index) => {
-                let object = curr_sf.pop_ref();
+                let object = curr_sf.pop_ref()?;
 
-                let (_class_name, field_name, _field_type) = self.class_area[&curr_sf.class_name]
+                let (_class_name, field_name, _field_type) = match self
+                    .class_area
+                    .get(&curr_sf.class_name)
+                    .unwrap()
                     .constant_pool
                     .field_ref_parser(&index)
-                    .unwrap();
+                {
+                    Some(x) => x,
+                    None => return Err(String::from("Invalid field reference for GetField")),
+                };
 
-                let field = self.heap[object].fields.get(&field_name).unwrap();
+                let field = self
+                    .heap
+                    .get(object)
+                    .unwrap()
+                    .fields
+                    .get(&field_name)
+                    .unwrap();
 
                 curr_sf.stack.push(field.clone());
             }
             Instruction::PutField(index) => {
-                let value = curr_sf.pop_primitive();
-                let reference = curr_sf.pop_ref();
+                let value = curr_sf.pop_primitive()?;
+                let reference = curr_sf.pop_ref()?;
 
-                let (_class_name, field_name, _field_type) = self.class_area[&curr_sf.class_name]
+                let (_class_name, field_name, _field_type) = match self
+                    .class_area
+                    .get(&curr_sf.class_name)
+                    .unwrap()
                     .constant_pool
                     .field_ref_parser(&index)
-                    .unwrap();
+                {
+                    Some(x) => x,
+                    None => return Err(String::from("Invalid field reference for PutField")),
+                };
 
-                self.heap[reference].fields.insert(field_name, value);
+                self.heap
+                    .get_mut(reference)
+                    .unwrap()
+                    .fields
+                    .insert(field_name, value);
             }
             Instruction::InvokeVirtual(index) | Instruction::InvokeSpecial(index) => {
                 // TODO: May need to split into separate InvokeVirtual and InvokeSpecial implementations.
-                let (class_name, method_name, method_descriptor) = self.class_area
-                    [&curr_sf.class_name]
+                let (class_name, method_name, method_descriptor) = match self
+                    .class_area
+                    .get(&curr_sf.class_name)
+                    .unwrap()
                     .constant_pool
                     .method_ref_parser(&index)
-                    .unwrap();
+                {
+                    Some(x) => x,
+                    None => {
+                        return Err(String::from("Method reference not found for InvokeVirtual"))
+                    }
+                };
 
                 if !self.class_area.contains_key(&class_name) {
                     // println!("Unable to find method {}/{} : {}", class_name, method_name, method_descriptor);
                     // TODO: Move this to standard library
                     if method_name == "println" {
-                        let value = curr_sf.pop_primitive();
+                        let value = curr_sf.pop_primitive()?;
                         println!("{}", value.pretty_print());
                     }
 
                     curr_sf.stack.pop();
                     curr_sf.pc += 1;
-                    return;
+                    return Ok(());
                 }
 
-                let method = self.class_area[&class_name].methods
-                    [&format!("{}{}", method_name, method_descriptor)]
+                let method = self
+                    .class_area
+                    .get(&class_name)
+                    .unwrap()
+                    .methods
+                    .get(&format!("{}{}", method_name, method_descriptor))
+                    .unwrap()
                     .clone();
 
                 let mut method_parameters = Vec::new();
 
-                let param_string_len =
-                    method_descriptor.split(')').collect::<Vec<&str>>()[0].len() - 1;
+                let param_string_len = method_descriptor
+                    .split(')')
+                    .collect::<Vec<&str>>()
+                    .get(0)
+                    .unwrap()
+                    .len()
+                    - 1;
 
                 for _i in 0..param_string_len {
-                    method_parameters.push(curr_sf.pop_primitive());
+                    method_parameters.push(curr_sf.pop_primitive()?);
                 }
 
-                method_parameters.push(curr_sf.pop_primitive());
+                method_parameters.push(curr_sf.pop_primitive()?);
 
                 method_parameters.reverse();
 
@@ -453,27 +554,46 @@ impl Jvm {
                     class_name,
                 });
 
-                return;
+                return Ok(());
             }
             Instruction::InvokeStatic(index) => {
-                let (class_name, method_name, method_descriptor) = self.class_area
-                    [&curr_sf.class_name]
+                let (class_name, method_name, method_descriptor) = match self
+                    .class_area
+                    .get(&curr_sf.class_name)
+                    .unwrap()
                     .constant_pool
                     .method_ref_parser(&index)
-                    .unwrap();
+                {
+                    Some(x) => x,
+                    None => {
+                        return Err(String::from(
+                            "Could not find method reference for InvokeStatic",
+                        ))
+                    }
+                };
 
-                let method = self.class_area[&class_name].methods
-                    [&format!("{}{}", method_name, method_descriptor)]
+                let method = self
+                    .class_area
+                    .get(&class_name)
+                    .unwrap()
+                    .methods
+                    .get(&format!("{}{}", method_name, method_descriptor))
+                    .unwrap()
                     .clone();
 
                 let mut method_parameters = Vec::new();
 
-                let param_string_len =
-                    method_descriptor.split(')').collect::<Vec<&str>>()[0].len() - 1;
+                let param_string_len = method_descriptor
+                    .split(')')
+                    .collect::<Vec<&str>>()
+                    .get(0)
+                    .unwrap()
+                    .len()
+                    - 1;
 
                 // TODO: Check that the parameters passed to the method are the correct types
                 for _i in 0..param_string_len {
-                    method_parameters.push(curr_sf.pop_primitive());
+                    method_parameters.push(curr_sf.pop_primitive()?);
                 }
 
                 method_parameters.reverse();
@@ -489,12 +609,15 @@ impl Jvm {
                     class_name,
                 });
 
-                return;
+                return Ok(());
             }
             // Instruction::InvokeInterface(index) => {}
             // Instruction::InvokeDynamic(index) => {}
             Instruction::New(index) => {
-                let class_name = self.class_area[&curr_sf.class_name]
+                let class_name = self
+                    .class_area
+                    .get(&curr_sf.class_name)
+                    .unwrap()
                     .constant_pool
                     .class_parser(&index)
                     .unwrap();
@@ -510,7 +633,7 @@ impl Jvm {
             }
             Instruction::NewArray(_a_type) | Instruction::ANewArray(_a_type) => {
                 // TODO: Actually implement ANewArray correctly
-                let count = curr_sf.pop_int();
+                let count = curr_sf.pop_int()?;
 
                 let new_array_ref = curr_sf.arrays.len();
                 curr_sf
@@ -519,8 +642,8 @@ impl Jvm {
                 curr_sf.stack.push(Primitive::Reference(new_array_ref));
             }
             Instruction::ArrayLength => {
-                let array_ref = curr_sf.pop_ref();
-                let array_length = curr_sf.arrays[array_ref].len();
+                let array_ref = curr_sf.pop_ref()?;
+                let array_length = curr_sf.arrays.get(array_ref).unwrap().len();
                 curr_sf.stack.push(Primitive::Int(array_length as i32));
             }
             // Instruction::AThrow => {}
@@ -531,21 +654,22 @@ impl Jvm {
             // Instruction::Wide(usize) => {}
             // Instruction::MultiANewArray(index, dimensions) => {}
             Instruction::IfNull(branch_offset) => {
-                if curr_sf.pop_primitive().is_type(PrimitiveType::Null) {
+                if curr_sf.pop_primitive()?.is_type(PrimitiveType::Null) {
                     curr_sf.pc += branch_offset;
-                    return;
+                    return Ok(());
                 }
             }
             Instruction::IfNonNull(branch_offset) => {
-                if !curr_sf.pop_primitive().is_type(PrimitiveType::Null) {
+                if !curr_sf.pop_primitive()?.is_type(PrimitiveType::Null) {
                     curr_sf.pc += branch_offset;
-                    return;
+                    return Ok(());
                 }
             }
             // Instruction::Breakpoint => {}
-            _ => panic!("unsupported instruction"),
+            _ => return Err(String::from("Unsupported instruction")),
         }
 
         curr_sf.pc += 1;
+        Ok(())
     }
 }

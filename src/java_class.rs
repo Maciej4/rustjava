@@ -20,8 +20,8 @@ pub enum ConstantPoolEntry {
 }
 
 impl ConstantPoolEntry {
-    pub fn get_primitive(&self) -> Primitive {
-        match self {
+    pub fn get_primitive(&self) -> Result<Primitive, String> {
+        Ok(match self {
             ConstantPoolEntry::Integer(i) => Primitive::Int(*i),
             ConstantPoolEntry::Float(f) => Primitive::Float(*f),
             ConstantPoolEntry::Long(l) => Primitive::Long(*l),
@@ -30,8 +30,12 @@ impl ConstantPoolEntry {
             ConstantPoolEntry::String(r) => Primitive::Reference(*r), // TODO: this may be wrong
             ConstantPoolEntry::MethodHandle(_, r) => Primitive::Reference(*r),
             ConstantPoolEntry::MethodType(r) => Primitive::Reference(*r),
-            _ => panic!("Unable to convert constant pool entry to loadable primitive"),
-        }
+            _ => {
+                return Err(String::from(
+                    "Unable to convert constant pool entry to loadable primitive",
+                ))
+            }
+        })
     }
 }
 

@@ -1,5 +1,3 @@
-use std::any::Any;
-
 #[derive(Debug, Clone)]
 pub enum Instruction {
     Nop,
@@ -126,16 +124,16 @@ pub enum Primitive {
 }
 
 impl Primitive {
-    pub fn eval(a: Primitive, o: Operator) -> Primitive {
-        match o {
-            Operator::Neg => match a {
+    pub fn eval(self, o: Operator) -> Result<Primitive, String> {
+        Ok(match o {
+            Operator::Neg => match self {
                 Primitive::Int(i) => Primitive::Int(-i),
                 Primitive::Long(l) => Primitive::Long(-l),
                 Primitive::Float(f) => Primitive::Float(-f),
                 Primitive::Double(d) => Primitive::Double(-d),
-                _ => panic!("Unsupported operation"),
+                _ => return Err(String::from("Could not negate passed value")),
             },
-            Operator::Convert(source, destination) => match (a, source) {
+            Operator::Convert(source, destination) => match (self, source) {
                 (Primitive::Int(i), PrimitiveType::Int) => match destination {
                     PrimitiveType::Byte => Primitive::Byte(i as i8),
                     PrimitiveType::Short => Primitive::Short(i as i16),
@@ -143,107 +141,110 @@ impl Primitive {
                     PrimitiveType::Long => Primitive::Long(i as i64),
                     PrimitiveType::Float => Primitive::Float(i as f32),
                     PrimitiveType::Double => Primitive::Double(i as f64),
-                    _ => panic!("cannot convert int to passed type"),
+                    _ => return Err(String::from("Could not convert int to passed type")),
                 },
                 (Primitive::Long(l), PrimitiveType::Long) => match destination {
                     PrimitiveType::Int => Primitive::Int(l as i32),
                     PrimitiveType::Float => Primitive::Float(l as f32),
                     PrimitiveType::Double => Primitive::Double(l as f64),
-                    _ => panic!("cannot convert long to passed type"),
+                    _ => return Err(String::from("Could not convert long to passed type")),
                 },
                 (Primitive::Float(f), PrimitiveType::Float) => match destination {
                     PrimitiveType::Int => Primitive::Int(f as i32),
                     PrimitiveType::Long => Primitive::Long(f as i64),
                     PrimitiveType::Double => Primitive::Double(f as f64),
-                    _ => panic!("cannot convert float to passed type"),
+                    _ => return Err(String::from("Could not convert float to passed type")),
                 },
                 (Primitive::Double(d), PrimitiveType::Double) => match destination {
                     PrimitiveType::Int => Primitive::Int(d as i32),
                     PrimitiveType::Long => Primitive::Long(d as i64),
                     PrimitiveType::Float => Primitive::Float(d as f32),
-                    _ => panic!("cannot convert double to passed type"),
+                    _ => return Err(String::from("Could not convert double to passed type")),
                 },
-                _ => panic!("unsupported conversion or incorrect type passed"),
+                _ => {
+                    return Err(String::from(
+                        "Unsupported conversion or incorrect type passed",
+                    ))
+                }
             },
-
-            _ => panic!("Unsupported operation"),
-        }
+            _ => return Err(String::from("Unsupported operation for evaluation")),
+        })
     }
 
-    pub fn eval2(a: Primitive, b: Primitive, o: Operator) -> Primitive {
-        match o {
+    pub fn eval2(a: Primitive, b: Primitive, o: Operator) -> Result<Primitive, String> {
+        Ok(match o {
             Operator::Add => match (a, b) {
                 (Primitive::Int(i), Primitive::Int(j)) => Primitive::Int(i + j),
                 (Primitive::Long(l), Primitive::Long(j)) => Primitive::Long(l + j),
                 (Primitive::Float(f), Primitive::Float(j)) => Primitive::Float(f + j),
                 (Primitive::Double(d), Primitive::Double(j)) => Primitive::Double(d + j),
-                _ => panic!("Unsupported operation"),
+                _ => return Err(String::from("Could not add passed values")),
             },
             Operator::Sub => match (a, b) {
                 (Primitive::Int(i), Primitive::Int(j)) => Primitive::Int(i - j),
                 (Primitive::Long(l), Primitive::Long(j)) => Primitive::Long(l - j),
                 (Primitive::Float(f), Primitive::Float(j)) => Primitive::Float(f - j),
                 (Primitive::Double(d), Primitive::Double(j)) => Primitive::Double(d - j),
-                _ => panic!("Unsupported operation"),
+                _ => return Err(String::from("Could not subtract passed values")),
             },
             Operator::Mul => match (a, b) {
                 (Primitive::Int(i), Primitive::Int(j)) => Primitive::Int(i * j),
                 (Primitive::Long(l), Primitive::Long(j)) => Primitive::Long(l * j),
                 (Primitive::Float(f), Primitive::Float(j)) => Primitive::Float(f * j),
                 (Primitive::Double(d), Primitive::Double(j)) => Primitive::Double(d * j),
-                _ => panic!("Unsupported operation"),
+                _ => return Err(String::from("Could not multiply passed values")),
             },
             Operator::Div => match (a, b) {
                 (Primitive::Int(i), Primitive::Int(j)) => Primitive::Int(i / j),
                 (Primitive::Long(l), Primitive::Long(j)) => Primitive::Long(l / j),
                 (Primitive::Float(f), Primitive::Float(j)) => Primitive::Float(f / j),
                 (Primitive::Double(d), Primitive::Double(j)) => Primitive::Double(d / j),
-                _ => panic!("Unsupported operation"),
+                _ => return Err(String::from("Could not divide passed values")),
             },
             Operator::Rem => match (a, b) {
                 (Primitive::Int(i), Primitive::Int(j)) => Primitive::Int(i % j),
                 (Primitive::Long(l), Primitive::Long(j)) => Primitive::Long(l % j),
                 (Primitive::Float(f), Primitive::Float(j)) => Primitive::Float(f % j),
                 (Primitive::Double(d), Primitive::Double(j)) => Primitive::Double(d % j),
-                _ => panic!("Unsupported operation"),
+                _ => return Err(String::from("Could not modulo passed values")),
             },
             Operator::And => match (a, b) {
                 (Primitive::Int(i), Primitive::Int(j)) => Primitive::Int(i & j),
                 (Primitive::Long(l), Primitive::Long(j)) => Primitive::Long(l & j),
-                _ => panic!("Unsupported operation"),
+                _ => return Err(String::from("Could not bitwise and passed values")),
             },
             Operator::Or => match (a, b) {
                 (Primitive::Int(i), Primitive::Int(j)) => Primitive::Int(i | j),
                 (Primitive::Long(l), Primitive::Long(j)) => Primitive::Long(l | j),
-                _ => panic!("Unsupported operation"),
+                _ => return Err(String::from("Could not bitwise or passed values")),
             },
             Operator::Xor => match (a, b) {
                 (Primitive::Int(i), Primitive::Int(j)) => Primitive::Int(i ^ j),
                 (Primitive::Long(l), Primitive::Long(j)) => Primitive::Long(l ^ j),
-                _ => panic!("Unsupported operation"),
+                _ => return Err(String::from("Could not bitwise xor passed values")),
             },
             Operator::Shl => match (a, b) {
                 (Primitive::Int(i), Primitive::Int(j)) => Primitive::Int(i << j),
                 (Primitive::Long(l), Primitive::Int(j)) => Primitive::Long(l << j),
-                _ => panic!("Unsupported operation"),
+                _ => return Err(String::from("Could not bitwise shift left passed values")),
             },
             Operator::Shr => match (a, b) {
                 (Primitive::Int(i), Primitive::Int(j)) => Primitive::Int(i >> j),
                 (Primitive::Long(l), Primitive::Int(j)) => Primitive::Long(l >> j),
-                _ => panic!("Unsupported operation"),
+                _ => return Err(String::from("Could not bitwise shift right passed values")),
             },
             Operator::UShr => match (a, b) {
                 // TODO: implement unsigned (or logical?) shift correctly
                 (Primitive::Int(i), Primitive::Int(j)) => Primitive::Int(i >> j),
                 (Primitive::Long(l), Primitive::Int(j)) => Primitive::Long(l >> j),
-                _ => panic!("Unsupported operation"),
+                _ => return Err(String::from("Could not bitwise shift right passed values")),
             },
-            _ => panic!("unsupported operation"),
-        }
+            _ => return Err(String::from("Unsupported operation for evaluation")),
+        })
     }
 
-    pub fn compare_to_zero(value: Primitive, comparator: Comparison) -> bool {
-        match value {
+    pub fn compare_to_zero(value: Primitive, comparator: Comparison) -> Result<bool, String> {
+        Ok(match value {
             Primitive::Int(x) => match comparator {
                 Comparison::Equal => x == 0,
                 Comparison::NotEqual => x != 0,
@@ -276,12 +277,16 @@ impl Primitive {
                 Comparison::GreaterThan => x > 0.0,
                 Comparison::LessThanOrEqual => x <= 0.0,
             },
-            _ => panic!("unsupported type for comparison"),
-        }
+            _ => return Err(String::from("Could not compare passed value to zero")),
+        })
     }
 
-    pub fn integer_compare(value1: Primitive, value2: Primitive, comparator: Comparison) -> bool {
-        match (value1, value2) {
+    pub fn integer_compare(
+        value1: Primitive,
+        value2: Primitive,
+        comparator: Comparison,
+    ) -> Result<bool, String> {
+        Ok(match (value1, value2) {
             (Primitive::Int(x), Primitive::Int(y)) => match comparator {
                 Comparison::Equal => x == y,
                 Comparison::NotEqual => x != y,
@@ -290,8 +295,12 @@ impl Primitive {
                 Comparison::GreaterThan => x > y,
                 Comparison::LessThanOrEqual => x <= y,
             },
-            _ => panic!("comparing non-int types"),
-        }
+            _ => {
+                return Err(String::from(
+                    "Could not perform integer compare on passed values",
+                ))
+            }
+        })
     }
 
     pub fn is_wide(&self) -> bool {
