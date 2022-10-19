@@ -81,6 +81,7 @@ pub struct Jvm {
     pub class_area: HashMap<String, Class>,
     pub heap: Vec<Object>,
     pub stack_frames: Vec<StackFrame>,
+    pub stdout: String,
 }
 
 impl Jvm {
@@ -94,6 +95,7 @@ impl Jvm {
             class_area,
             heap: Vec::new(),
             stack_frames: Vec::new(),
+            stdout: String::new(),
         }
     }
 
@@ -507,8 +509,9 @@ impl Jvm {
                     // println!("Unable to find method {}/{} : {}", class_name, method_name, method_descriptor);
                     // TODO: Move this to standard library
                     if method_name == "println" {
-                        let value = curr_sf.pop_primitive()?;
-                        println!("{}", value.pretty_print());
+                        let value_string = curr_sf.pop_primitive()?.pretty_print();
+                        println!("{}", value_string);
+                        self.stdout.push_str(value_string.as_str());
                     }
 
                     curr_sf.stack.pop();
