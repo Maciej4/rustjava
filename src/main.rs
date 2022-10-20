@@ -12,7 +12,7 @@ mod reader;
 mod tests;
 
 fn main() {
-    let code = include_str!("java_tests/Add.java");
+    let code = include_str!("java_tests/AdvancedIf.java");
 
     let classes = match javac::parse_to_class(code.to_string()) {
         Ok(classes) => classes,

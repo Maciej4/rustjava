@@ -1,6 +1,6 @@
 use crate::java_class::{ConstantPoolEntry, ConstantPoolExt};
 use crate::jvm::{Class, Method};
-use crate::{Instruction, Primitive, PrimitiveType};
+use crate::{Comparison, Instruction, Primitive, PrimitiveType};
 use std::collections::HashMap;
 use tree_sitter::{Node, Parser};
 
@@ -783,6 +783,105 @@ fn parse_expression(
     Ok((instructions, expression_type))
 }
 
+// The u32 is the depth of the section
+enum JumpPoint {
+    Section(usize),
+    Jump(usize),
+    End,
+}
+
+struct JumpInfo {
+    indexes: Vec<usize>,
+    jump_points: Vec<JumpPoint>,
+}
+
+fn parse_if(
+    node: &Node,
+    source: &[u8],
+    current_class: &String,
+    parser_context: &ParserContext,
+    super_locals: &SuperLocals,
+    constant_pool: &mut Vec<ConstantPoolEntry>,
+    depth: u32,
+) -> Result<(Vec<Instruction>, JumpInfo), String> {
+    let mut instructions = Vec::new();
+    let mut jump_info = JumpInfo {
+        indexes: Vec::new(),
+        jump_points: Vec::new(),
+    };
+
+    if node.kind() == "parenthesized_expression" {
+        return parse_if(
+            &node.child(1).unwrap(),
+            source,
+            current_class,
+            parser_context,
+            super_locals,
+            constant_pool,
+            depth,
+        );
+    }
+
+    if node.kind() == "binary_expression" {
+        let left = match node.child(0) {
+            Some(node) => node,
+            None => return Err(String::from("Binary expression is missing left side")),
+        };
+
+        let right = match node.child(2) {
+            Some(node) => node,
+            None => return Err(String::from("Binary expression is missing right side")),
+        };
+
+        let operator = match node.child(1) {
+            Some(node) => match node.utf8_text(source) {
+                Ok(text) => text,
+                Err(err) => return Err(format!("Failed to parse binary operator: {}", err)),
+            },
+            None => return Err(String::from("Binary expression is missing operator")),
+        };
+
+        match operator {
+            "&&" => {}
+            "||" => {}
+            _ => {}
+        }
+
+        let (left_instructions, left_type) = parse_expression(
+            &left,
+            source,
+            current_class,
+            parser_context,
+            super_locals,
+            constant_pool,
+        )?;
+
+        let (right_instructions, right_type) = parse_expression(
+            &right,
+            source,
+            current_class,
+            parser_context,
+            super_locals,
+            constant_pool,
+        )?;
+
+        instructions.extend(left_instructions);
+        instructions.extend(right_instructions);
+
+        let comp = match operator {
+            "==" => Comparison::Equal,
+            "!=" => Comparison::NotEqual,
+            ">" => Comparison::GreaterThan,
+            ">=" => Comparison::GreaterThanOrEqual,
+            "<" => Comparison::LessThan,
+            "<=" => Comparison::LessThanOrEqual,
+            _ => return Err(format!("Unknown comparison operator {}", operator)),
+        };
+    }
+
+    todo!()
+}
+
 fn parse_code_block(
     node: &Node,
     source: &[u8],
@@ -845,6 +944,12 @@ fn parse_code_block(
                 )?;
 
                 instructions.extend(expression_instructions);
+            }
+            "if_statement" => {
+                let expression = match child.child(0) {
+                    Some(node) => node,
+                    None => return Err(String::from("If statement is missing expression")),
+                };
             }
             "return_statement" => {
                 let return_expression = match child.child(1) {
@@ -963,8 +1068,8 @@ pub fn parse_to_class(code: String) -> Result<Vec<Class>, String> {
     let root_node = tree.root_node();
     let source = code.as_bytes();
 
-    // root_node.print_tree();
-    // println!();
+    root_node.print_tree();
+    println!();
 
     let class = root_node.child_by_kind("class_declaration").unwrap();
     let class_body = class.child_by_kind("class_body").unwrap();
