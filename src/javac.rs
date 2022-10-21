@@ -783,19 +783,25 @@ fn parse_expression(
     Ok((instructions, expression_type))
 }
 
-// The u32 is the depth of the section
-enum JumpPoint {
-    Section(usize),
-    Jump(usize),
-    End,
+#[derive(Debug)]
+struct ExpressionInfo {
+    pub comparison: Comparison,
+    pub instructions: Vec<Instruction>,
 }
 
-struct JumpInfo {
-    indexes: Vec<usize>,
-    jump_points: Vec<JumpPoint>,
+#[derive(Debug)]
+struct ConnectiveInfo {
+    pub comparisons: Vec<BlockType>,
 }
 
-fn parse_if(
+#[derive(Debug)]
+enum BlockType {
+    And(ConnectiveInfo),
+    Or(ConnectiveInfo),
+    Expression(ExpressionInfo),
+}
+
+fn partial_parse_if(
     node: &Node,
     source: &[u8],
     current_class: &String,
@@ -803,16 +809,19 @@ fn parse_if(
     super_locals: &SuperLocals,
     constant_pool: &mut Vec<ConstantPoolEntry>,
     depth: u32,
-) -> Result<(Vec<Instruction>, JumpInfo), String> {
+) -> Result<BlockType, String> {
     let mut instructions = Vec::new();
-    let mut jump_info = JumpInfo {
-        indexes: Vec::new(),
-        jump_points: Vec::new(),
-    };
+
+    println!("partial_parse_if: {}", node.kind());
 
     if node.kind() == "parenthesized_expression" {
-        return parse_if(
-            &node.child(1).unwrap(),
+        let child = match node.child(1) {
+            Some(node) => node,
+            None => return Err(String::from("Parenthesized expression is missing child")),
+        };
+
+        return partial_parse_if(
+            &child,
             source,
             current_class,
             parser_context,
@@ -841,10 +850,40 @@ fn parse_if(
             None => return Err(String::from("Binary expression is missing operator")),
         };
 
-        match operator {
-            "&&" => {}
-            "||" => {}
-            _ => {}
+        if operator.eq("&&") || operator.eq("||") {
+            let left_block = partial_parse_if(
+                &left,
+                source,
+                current_class,
+                parser_context,
+                super_locals,
+                constant_pool,
+                depth,
+            )?;
+
+            let right_block = partial_parse_if(
+                &right,
+                source,
+                current_class,
+                parser_context,
+                super_locals,
+                constant_pool,
+                depth,
+            )?;
+
+            match operator {
+                "&&" => {
+                    return Ok(BlockType::And(ConnectiveInfo {
+                        comparisons: vec![left_block, right_block],
+                    }))
+                }
+                "||" => {
+                    return Ok(BlockType::Or(ConnectiveInfo {
+                        comparisons: vec![left_block, right_block],
+                    }))
+                }
+                _ => return Err(format!("Unknown operator {}", operator)),
+            }
         }
 
         let (left_instructions, left_type) = parse_expression(
@@ -868,7 +907,7 @@ fn parse_if(
         instructions.extend(left_instructions);
         instructions.extend(right_instructions);
 
-        let comp = match operator {
+        let comparison = match operator {
             "==" => Comparison::Equal,
             "!=" => Comparison::NotEqual,
             ">" => Comparison::GreaterThan,
@@ -877,9 +916,45 @@ fn parse_if(
             "<=" => Comparison::LessThanOrEqual,
             _ => return Err(format!("Unknown comparison operator {}", operator)),
         };
+
+        return Ok(BlockType::Expression(ExpressionInfo {
+            comparison,
+            instructions,
+        }));
     }
 
     todo!()
+}
+
+fn parse_if(
+    node: &Node,
+    source: &[u8],
+    current_class: &String,
+    parser_context: &ParserContext,
+    super_locals: &SuperLocals,
+    constant_pool: &mut Vec<ConstantPoolEntry>,
+    depth: u32,
+) -> Result<Vec<Instruction>, String> {
+    let child = match node.child(1) {
+        Some(node) => node,
+        None => return Err(String::from("If statement is missing condition")),
+    };
+
+    child.print_tree();
+
+    let expression_tree = partial_parse_if(
+        &child,
+        source,
+        current_class,
+        parser_context,
+        super_locals,
+        constant_pool,
+        depth,
+    )?;
+
+    println!("expression_tree: {:?}", expression_tree);
+
+    Err(String::from("Finished parsing if"))
 }
 
 fn parse_code_block(
@@ -946,10 +1021,15 @@ fn parse_code_block(
                 instructions.extend(expression_instructions);
             }
             "if_statement" => {
-                let expression = match child.child(0) {
-                    Some(node) => node,
-                    None => return Err(String::from("If statement is missing expression")),
-                };
+                instructions.extend(parse_if(
+                    &child,
+                    source,
+                    current_class,
+                    parser_context,
+                    &locals,
+                    constant_pool,
+                    0,
+                )?);
             }
             "return_statement" => {
                 let return_expression = match child.child(1) {

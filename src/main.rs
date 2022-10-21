@@ -17,7 +17,7 @@ fn main() {
     let classes = match javac::parse_to_class(code.to_string()) {
         Ok(classes) => classes,
         Err(e) => {
-            println!("Error: {}", e);
+            println!("\x1b[31mError: {}\x1b[0m", e);
             return;
         }
     };
