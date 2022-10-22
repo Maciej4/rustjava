@@ -871,19 +871,15 @@ fn partial_parse_if(
                 depth,
             )?;
 
-            match operator {
-                "&&" => {
-                    return Ok(BlockType::And(ConnectiveInfo {
-                        comparisons: vec![left_block, right_block],
-                    }))
-                }
-                "||" => {
-                    return Ok(BlockType::Or(ConnectiveInfo {
-                        comparisons: vec![left_block, right_block],
-                    }))
-                }
+            return Ok(match operator {
+                "&&" => BlockType::And(ConnectiveInfo {
+                    comparisons: vec![left_block, right_block],
+                }),
+                "||" => BlockType::Or(ConnectiveInfo {
+                    comparisons: vec![left_block, right_block],
+                }),
                 _ => return Err(format!("Unknown operator {}", operator)),
-            }
+            });
         }
 
         let (left_instructions, left_type) = parse_expression(
@@ -925,6 +921,21 @@ fn partial_parse_if(
 
     todo!()
 }
+
+/// Notes on parsing if statements:
+// a && b && c
+// not(a) -> end; not(b) -> end; not(c) -> end;
+
+// a || b || c
+// a -> start; b -> start; not(c) -> end;
+
+// (a || b || c) && (d || e || f)
+// a -> next block; b -> next block; not(c) -> end;   &&   d -> start; e -> start; not(f) -> end;
+
+// (a && b && c) || (d && e && f)
+// not(a) -> next block; not(b) -> next block; c -> start;   ||   not(d) -> start; not(e) -> start; not(f) -> end;
+
+// And statements are parsed first, then or statements
 
 fn parse_if(
     node: &Node,
