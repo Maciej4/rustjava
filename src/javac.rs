@@ -835,6 +835,66 @@ impl BlockType {
             }
         }
     }
+
+    /// Flatten the connective block into a single connective
+    /// i.e. And(And(Expr, Expr), Expr) -> And(Expr, Expr, Expr)
+    /// or Or(Or(Expr, Expr), Expr) -> Or(Expr, Expr, Expr)
+    /// This should also strip unnecessary parenthesis.
+    pub fn flatten(&self) -> BlockType {
+        match self {
+            BlockType::And(info) => {
+                let mut comparisons = Vec::new();
+                for comparison in &info.comparisons {
+                    match comparison.flatten() {
+                        BlockType::And(info) => {
+                            for comparison in info.comparisons {
+                                comparisons.push(comparison);
+                            }
+                        }
+                        comparison => comparisons.push(comparison),
+                    }
+                }
+                BlockType::And(ConnectiveInfo { comparisons })
+            }
+            BlockType::Or(info) => {
+                let mut comparisons = Vec::new();
+                for comparison in &info.comparisons {
+                    match comparison.flatten() {
+                        BlockType::Or(info) => {
+                            for comparison in info.comparisons {
+                                comparisons.push(comparison);
+                            }
+                        }
+                        comparison => comparisons.push(comparison),
+                    }
+                }
+                BlockType::Or(ConnectiveInfo { comparisons })
+            }
+            BlockType::Parenthesis(info) => {
+                let mut comparisons = Vec::new();
+                for comparison in &info.comparisons {
+                    match comparison.flatten() {
+                        BlockType::Parenthesis(info) => {
+                            for comparison in info.comparisons {
+                                comparisons.push(comparison);
+                            }
+                        }
+                        comparison => comparisons.push(comparison),
+                    }
+                }
+                if comparisons.len() == 1 {
+                    comparisons.remove(0)
+                } else {
+                    BlockType::Parenthesis(ConnectiveInfo { comparisons })
+                }
+                // BlockType::Parenthesis(ConnectiveInfo { comparisons })
+            }
+            BlockType::Expression(info) => BlockType::Expression(ExpressionInfo {
+                comparison: info.comparison.clone(),
+                instructions: info.instructions.clone(),
+            }),
+        }
+    }
 }
 
 fn partial_parse_if(
@@ -1001,7 +1061,8 @@ fn parse_if(
         super_locals,
         constant_pool,
         depth,
-    )?;
+    )?
+    .flatten();
 
     expression_tree.pretty_print_tree(0);
 
