@@ -79,6 +79,19 @@ pub enum Comparison {
     GreaterThanOrEqual,
 }
 
+impl Comparison {
+    pub fn negate(&self) -> Comparison {
+        match self {
+            Comparison::Equal => Comparison::NotEqual,
+            Comparison::NotEqual => Comparison::Equal,
+            Comparison::LessThan => Comparison::GreaterThanOrEqual,
+            Comparison::GreaterThan => Comparison::LessThanOrEqual,
+            Comparison::LessThanOrEqual => Comparison::GreaterThan,
+            Comparison::GreaterThanOrEqual => Comparison::LessThan,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Operator {
     Add,
@@ -107,7 +120,7 @@ pub enum PrimitiveType {
     Float,
     Double,
     Reference,
-    Boolean,
+    Boolean, // TODO: java representation of boolean is just a byte (0 or 1)
 }
 
 #[derive(Debug, Clone)]

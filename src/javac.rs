@@ -798,7 +798,43 @@ struct ConnectiveInfo {
 enum BlockType {
     And(ConnectiveInfo),
     Or(ConnectiveInfo),
+    Parenthesis(ConnectiveInfo),
     Expression(ExpressionInfo),
+}
+
+impl BlockType {
+    /// Pretty print the block type and its children
+    pub fn pretty_print_tree(&self, depth: usize) {
+        let mut indent = "  ".repeat(depth);
+
+        match self {
+            BlockType::And(info) => {
+                println!("{}AND", indent);
+                for comparison in &info.comparisons {
+                    comparison.pretty_print_tree(depth + 1);
+                }
+            }
+            BlockType::Or(info) => {
+                println!("{}OR", indent);
+                for comparison in &info.comparisons {
+                    comparison.pretty_print_tree(depth + 1);
+                }
+            }
+            BlockType::Parenthesis(info) => {
+                println!("{}PARENTHESIS", indent);
+                for comparison in &info.comparisons {
+                    comparison.pretty_print_tree(depth + 1);
+                }
+            }
+            BlockType::Expression(info) => {
+                println!("{}COMPARISON", indent);
+                for instruction in &info.instructions {
+                    println!("{}  {:?}", indent, instruction);
+                }
+                println!("{}  {:?}", indent, info.comparison);
+            }
+        }
+    }
 }
 
 fn partial_parse_if(
@@ -820,15 +856,19 @@ fn partial_parse_if(
             None => return Err(String::from("Parenthesized expression is missing child")),
         };
 
-        return partial_parse_if(
+        let block = partial_parse_if(
             &child,
             source,
             current_class,
             parser_context,
             super_locals,
             constant_pool,
-            depth,
-        );
+            depth + 1,
+        )?;
+
+        return Ok(BlockType::Parenthesis(ConnectiveInfo {
+            comparisons: vec![block],
+        }));
     }
 
     if node.kind() == "binary_expression" {
@@ -946,9 +986,9 @@ fn parse_if(
     constant_pool: &mut Vec<ConstantPoolEntry>,
     depth: u32,
 ) -> Result<Vec<Instruction>, String> {
-    let child = match node.child(1) {
+    let child = match node.child_by_kind("parenthesized_expression")?.child(1) {
         Some(node) => node,
-        None => return Err(String::from("If statement is missing condition")),
+        None => return Err(String::from("If statement doesn't have a condition")),
     };
 
     child.print_tree();
@@ -963,7 +1003,7 @@ fn parse_if(
         depth,
     )?;
 
-    println!("expression_tree: {:?}", expression_tree);
+    expression_tree.pretty_print_tree(0);
 
     Err(String::from("Finished parsing if"))
 }
