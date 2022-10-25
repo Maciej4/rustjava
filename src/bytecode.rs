@@ -69,6 +69,18 @@ pub enum Instruction {
     Breakpoint,
 }
 
+pub trait InstructionVec {
+    fn pretty_print(&self);
+}
+
+impl InstructionVec for Vec<Instruction> {
+    fn pretty_print(&self) {
+        for (i, instruction) in self.iter().enumerate() {
+            println!("{:3} | {:?}", i, instruction);
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Comparison {
     Equal,
@@ -256,8 +268,8 @@ impl Primitive {
         })
     }
 
-    pub fn compare_to_zero(value: Primitive, comparator: Comparison) -> Result<bool, String> {
-        Ok(match value {
+    pub fn compare_to_zero(self, comparator: Comparison) -> Result<bool, String> {
+        Ok(match self {
             Primitive::Int(x) => match comparator {
                 Comparison::Equal => x == 0,
                 Comparison::NotEqual => x != 0,
@@ -294,12 +306,8 @@ impl Primitive {
         })
     }
 
-    pub fn integer_compare(
-        value1: Primitive,
-        value2: Primitive,
-        comparator: Comparison,
-    ) -> Result<bool, String> {
-        Ok(match (value1, value2) {
+    pub fn integer_compare(self, other: Primitive, comparator: Comparison) -> Result<bool, String> {
+        Ok(match (self, other) {
             (Primitive::Int(x), Primitive::Int(y)) => match comparator {
                 Comparison::Equal => x == y,
                 Comparison::NotEqual => x != y,

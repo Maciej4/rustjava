@@ -331,7 +331,7 @@ impl Jvm {
             // Instruction::DCmpL => {}
             // Instruction::DCmpG => {}
             Instruction::If(branch_offset, comparator) => {
-                if Primitive::compare_to_zero(curr_sf.pop_primitive()?, comparator)? {
+                if curr_sf.pop_primitive()?.compare_to_zero(comparator)? {
                     curr_sf.pc += branch_offset;
                     return Ok(());
                 }
@@ -340,7 +340,7 @@ impl Jvm {
                 let value2 = curr_sf.pop_primitive()?;
                 let value1 = curr_sf.pop_primitive()?;
 
-                if Primitive::integer_compare(value1, value2, comparator)? {
+                if value1.integer_compare(value2, comparator)? {
                     curr_sf.pc += branch_offset;
                     return Ok(());
                 }
