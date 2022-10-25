@@ -1,3 +1,4 @@
+use crate::bytecode::InstructionVec;
 use crate::java_class::{ConstantPoolEntry, ConstantPoolExt};
 use crate::jvm::{Class, Method};
 use crate::{Comparison, Instruction, Primitive, PrimitiveType};
@@ -336,7 +337,7 @@ fn parse_expression(
     let mut instructions = vec![];
     let mut expression_type = PrimitiveType::Null;
 
-    println!("Parsing expression: {}", node.kind());
+    println!("parse_expression: {}", node.kind());
 
     match node.kind() {
         "(" | "," | ")" => {}
@@ -787,11 +788,16 @@ fn parse_expression(
 struct ExpressionInfo {
     pub comparison: Comparison,
     pub instructions: Vec<Instruction>,
+    pub start_index: usize,
+    pub end_index: usize,
+    // TODO: add is_int to this struct or otherwise handle non-int comparisons
 }
 
 #[derive(Debug)]
 struct ConnectiveInfo {
     pub comparisons: Vec<BlockType>,
+    pub start_index: usize,
+    pub end_index: usize,
 }
 
 #[derive(Debug)]
@@ -803,31 +809,57 @@ enum BlockType {
 }
 
 impl BlockType {
+    /// Get the start_index of the block
+    pub fn start_index(&self) -> usize {
+        match self {
+            BlockType::And(connective) => connective.start_index,
+            BlockType::Or(connective) => connective.start_index,
+            BlockType::Parenthesis(connective) => connective.start_index,
+            BlockType::Expression(expression) => expression.start_index,
+        }
+    }
+
+    /// Get the end_index of the block
+    pub fn end_index(&self) -> usize {
+        match self {
+            BlockType::And(connective) => connective.end_index,
+            BlockType::Or(connective) => connective.end_index,
+            BlockType::Parenthesis(connective) => connective.end_index,
+            BlockType::Expression(expression) => expression.end_index,
+        }
+    }
+
     /// Pretty print the block type and its children
     pub fn pretty_print_tree(&self, depth: usize) {
-        let mut indent = "  ".repeat(depth);
+        let indent = "  ".repeat(depth);
 
         match self {
             BlockType::And(info) => {
-                println!("{}AND", indent);
+                println!("{}AND [{}..{}]", indent, info.start_index, info.end_index);
                 for comparison in &info.comparisons {
                     comparison.pretty_print_tree(depth + 1);
                 }
             }
             BlockType::Or(info) => {
-                println!("{}OR", indent);
+                println!("{}OR [{}..{}]", indent, info.start_index, info.end_index);
                 for comparison in &info.comparisons {
                     comparison.pretty_print_tree(depth + 1);
                 }
             }
             BlockType::Parenthesis(info) => {
-                println!("{}PARENTHESIS", indent);
+                println!(
+                    "{}PARENTHESIS [{}..{}]",
+                    indent, info.start_index, info.end_index
+                );
                 for comparison in &info.comparisons {
                     comparison.pretty_print_tree(depth + 1);
                 }
             }
             BlockType::Expression(info) => {
-                println!("{}COMPARISON", indent);
+                println!(
+                    "{}COMPARISON [{}..{}]",
+                    indent, info.start_index, info.end_index
+                );
                 for instruction in &info.instructions {
                     println!("{}  {:?}", indent, instruction);
                 }
@@ -841,59 +873,119 @@ impl BlockType {
     /// or Or(Or(Expr, Expr), Expr) -> Or(Expr, Expr, Expr)
     /// This should also strip unnecessary parenthesis.
     pub fn flatten(&self) -> BlockType {
+        let mut comparisons = Vec::new();
+
         match self {
             BlockType::And(info) => {
-                let mut comparisons = Vec::new();
                 for comparison in &info.comparisons {
                     match comparison.flatten() {
-                        BlockType::And(info) => {
-                            for comparison in info.comparisons {
-                                comparisons.push(comparison);
-                            }
-                        }
+                        BlockType::And(info) => comparisons.extend(info.comparisons),
                         comparison => comparisons.push(comparison),
                     }
                 }
-                BlockType::And(ConnectiveInfo { comparisons })
+                BlockType::And(ConnectiveInfo {
+                    comparisons,
+                    start_index: info.start_index,
+                    end_index: info.end_index,
+                })
             }
             BlockType::Or(info) => {
-                let mut comparisons = Vec::new();
                 for comparison in &info.comparisons {
                     match comparison.flatten() {
-                        BlockType::Or(info) => {
-                            for comparison in info.comparisons {
-                                comparisons.push(comparison);
-                            }
-                        }
+                        BlockType::Or(info) => comparisons.extend(info.comparisons),
                         comparison => comparisons.push(comparison),
                     }
                 }
-                BlockType::Or(ConnectiveInfo { comparisons })
+                BlockType::Or(ConnectiveInfo {
+                    comparisons,
+                    start_index: info.start_index,
+                    end_index: info.end_index,
+                })
             }
             BlockType::Parenthesis(info) => {
-                let mut comparisons = Vec::new();
                 for comparison in &info.comparisons {
                     match comparison.flatten() {
-                        BlockType::Parenthesis(info) => {
-                            for comparison in info.comparisons {
-                                comparisons.push(comparison);
-                            }
-                        }
+                        BlockType::Parenthesis(info) => comparisons.extend(info.comparisons),
                         comparison => comparisons.push(comparison),
                     }
                 }
                 if comparisons.len() == 1 {
                     comparisons.remove(0)
                 } else {
-                    BlockType::Parenthesis(ConnectiveInfo { comparisons })
+                    BlockType::Parenthesis(ConnectiveInfo {
+                        comparisons,
+                        start_index: info.start_index,
+                        end_index: info.end_index,
+                    })
                 }
-                // BlockType::Parenthesis(ConnectiveInfo { comparisons })
             }
             BlockType::Expression(info) => BlockType::Expression(ExpressionInfo {
                 comparison: info.comparison.clone(),
                 instructions: info.instructions.clone(),
+                start_index: info.start_index,
+                end_index: info.end_index,
             }),
         }
+    }
+
+    /// Convert the block type into a list of instructions including correctly indexed jumps
+    /// for the if statements as a result of the connectives.
+    pub fn fully_flatten(
+        &self,
+        on_true_jump: usize,
+        on_false_jump: usize,
+        negate: bool,
+    ) -> Result<Vec<Instruction>, String> {
+        let mut instructions = Vec::new();
+
+        match self {
+            BlockType::And(info) => {
+                // There are n total comparisons in the and block
+                // The first n - 1 comparisons will jump to on_false_jump - their instruction_index if false
+                // The last comparison will jump to on_true_jump - its instruction_index if true
+                let n = info.comparisons.len();
+                for (i, comparison) in info.comparisons.iter().enumerate() {
+                    instructions.extend(if i == (n - 1) {
+                        comparison.fully_flatten(on_true_jump, on_false_jump, false)?
+                    } else {
+                        comparison.fully_flatten(on_false_jump, on_false_jump, true)?
+                    });
+                }
+            }
+            BlockType::Or(info) => {
+                // There are n total comparisons in the or block
+                // The first n - 1 comparisons will jump to on_true_jump - their instruction_index if true
+                // The last comparison will jump to on_false_jump - its instruction_index if false
+                let n = info.comparisons.len();
+                for (i, comparison) in info.comparisons.iter().enumerate() {
+                    instructions.extend(if i == (n - 1) {
+                        comparison.fully_flatten(on_true_jump, on_false_jump, true)?
+                    } else {
+                        comparison.fully_flatten(on_true_jump, comparison.end_index() + 1, false)?
+                    });
+                }
+            }
+            BlockType::Expression(info) => {
+                instructions.extend(info.instructions.clone());
+
+                let comp = if negate {
+                    info.comparison.negate()
+                } else {
+                    info.comparison.clone()
+                };
+
+                // This is just for testing and should be removed once the code is working
+                // instructions.push(Instruction::IfICmp(on_true_jump, comp))
+
+                // This is the actual code that should be used
+                instructions.push(Instruction::IfICmp(on_true_jump - info.end_index, comp))
+            }
+            BlockType::Parenthesis(_) => {
+                return Err("fully_flatten input should not include parenthesis".to_string())
+            }
+        }
+
+        Ok(instructions)
     }
 }
 
@@ -904,13 +996,15 @@ fn partial_parse_if(
     parser_context: &ParserContext,
     super_locals: &SuperLocals,
     constant_pool: &mut Vec<ConstantPoolEntry>,
-    depth: u32,
+    instructions_count: &mut usize,
 ) -> Result<BlockType, String> {
     let mut instructions = Vec::new();
 
     println!("partial_parse_if: {}", node.kind());
 
     if node.kind() == "parenthesized_expression" {
+        let start_index = *instructions_count;
+
         let child = match node.child(1) {
             Some(node) => node,
             None => return Err(String::from("Parenthesized expression is missing child")),
@@ -923,11 +1017,13 @@ fn partial_parse_if(
             parser_context,
             super_locals,
             constant_pool,
-            depth + 1,
+            instructions_count,
         )?;
 
         return Ok(BlockType::Parenthesis(ConnectiveInfo {
             comparisons: vec![block],
+            start_index,
+            end_index: *instructions_count - 1,
         }));
     }
 
@@ -951,6 +1047,8 @@ fn partial_parse_if(
         };
 
         if operator.eq("&&") || operator.eq("||") {
+            let start_index = *instructions_count;
+
             let left_block = partial_parse_if(
                 &left,
                 source,
@@ -958,7 +1056,7 @@ fn partial_parse_if(
                 parser_context,
                 super_locals,
                 constant_pool,
-                depth,
+                instructions_count,
             )?;
 
             let right_block = partial_parse_if(
@@ -968,19 +1066,26 @@ fn partial_parse_if(
                 parser_context,
                 super_locals,
                 constant_pool,
-                depth,
+                instructions_count,
             )?;
 
             return Ok(match operator {
                 "&&" => BlockType::And(ConnectiveInfo {
                     comparisons: vec![left_block, right_block],
+                    start_index,
+                    end_index: *instructions_count - 1,
                 }),
                 "||" => BlockType::Or(ConnectiveInfo {
                     comparisons: vec![left_block, right_block],
+                    start_index,
+                    end_index: *instructions_count - 1,
                 }),
                 _ => return Err(format!("Unknown operator {}", operator)),
             });
         }
+
+        // TODO: Handle expressions with non-integer operands
+        // Probably just need to add a subtract instruction and use if instead of if_icmp
 
         let (left_instructions, left_type) = parse_expression(
             &left,
@@ -1013,13 +1118,22 @@ fn partial_parse_if(
             _ => return Err(format!("Unknown comparison operator {}", operator)),
         };
 
+        let comparison_length = instructions.len() + 1;
+
+        *instructions_count += comparison_length;
+
         return Ok(BlockType::Expression(ExpressionInfo {
             comparison,
             instructions,
+            start_index: *instructions_count - comparison_length,
+            end_index: *instructions_count - 1,
         }));
     }
 
-    todo!()
+    return Err(format!(
+        "Unable to parse {} as part of if condition",
+        node.kind()
+    ));
 }
 
 /// Notes on parsing if statements:
@@ -1044,7 +1158,7 @@ fn parse_if(
     parser_context: &ParserContext,
     super_locals: &SuperLocals,
     constant_pool: &mut Vec<ConstantPoolEntry>,
-    depth: u32,
+    code_block_length: usize,
 ) -> Result<Vec<Instruction>, String> {
     let child = match node.child_by_kind("parenthesized_expression")?.child(1) {
         Some(node) => node,
@@ -1053,6 +1167,8 @@ fn parse_if(
 
     child.print_tree();
 
+    let mut tree_instruction_count = 0;
+
     let expression_tree = partial_parse_if(
         &child,
         source,
@@ -1060,11 +1176,21 @@ fn parse_if(
         parser_context,
         super_locals,
         constant_pool,
-        depth,
+        &mut tree_instruction_count,
     )?
     .flatten();
 
     expression_tree.pretty_print_tree(0);
+
+    println!("tree_instruction_count: {}", tree_instruction_count);
+
+    let instructions = expression_tree.fully_flatten(
+        tree_instruction_count,
+        tree_instruction_count + code_block_length,
+        false,
+    )?;
+
+    instructions.pretty_print();
 
     Err(String::from("Finished parsing if"))
 }
@@ -1081,7 +1207,7 @@ fn parse_code_block(
     let mut locals = (*super_locals).clone();
 
     for child in node.get_children() {
-        println!("Parsing child: {}", child.kind());
+        println!("parse_code_block: {}", child.kind());
 
         match child.kind() {
             "local_variable_declaration" => {
@@ -1133,6 +1259,15 @@ fn parse_code_block(
                 instructions.extend(expression_instructions);
             }
             "if_statement" => {
+                let if_code_block = parse_code_block(
+                    &child.child_by_kind("block")?,
+                    source,
+                    current_class,
+                    parser_context,
+                    &locals,
+                    constant_pool,
+                )?;
+
                 instructions.extend(parse_if(
                     &child,
                     source,
@@ -1140,8 +1275,10 @@ fn parse_code_block(
                     parser_context,
                     &locals,
                     constant_pool,
-                    0,
+                    if_code_block.len(),
                 )?);
+
+                instructions.extend(if_code_block);
             }
             "return_statement" => {
                 let return_expression = match child.child(1) {
