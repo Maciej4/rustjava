@@ -935,6 +935,7 @@ impl BlockType {
         on_true_jump: usize,
         on_false_jump: usize,
         negate: bool,
+        must_be_true: bool,
     ) -> Result<Vec<Instruction>, String> {
         let mut instructions = Vec::new();
 
@@ -946,9 +947,9 @@ impl BlockType {
                 let n = info.comparisons.len();
                 for (i, comparison) in info.comparisons.iter().enumerate() {
                     instructions.extend(if i == (n - 1) {
-                        comparison.fully_flatten(on_true_jump, on_false_jump, false)?
+                        comparison.fully_flatten(on_true_jump, on_false_jump, false, must_be_true)?
                     } else {
-                        comparison.fully_flatten(on_false_jump, on_false_jump, true)?
+                        comparison.fully_flatten(comparison.end_index() + 1, on_false_jump, true, must_be_true)?
                     });
                 }
             }
@@ -959,26 +960,28 @@ impl BlockType {
                 let n = info.comparisons.len();
                 for (i, comparison) in info.comparisons.iter().enumerate() {
                     instructions.extend(if i == (n - 1) {
-                        comparison.fully_flatten(on_true_jump, on_false_jump, true)?
+                        comparison.fully_flatten(on_true_jump, on_false_jump, true, must_be_true)?
                     } else {
-                        comparison.fully_flatten(on_true_jump, comparison.end_index() + 1, false)?
+                        comparison.fully_flatten(on_true_jump, comparison.end_index() + 1, false, false)?
                     });
                 }
             }
             BlockType::Expression(info) => {
                 instructions.extend(info.instructions.clone());
 
-                let comp = if negate {
-                    info.comparison.negate()
+                println!("{} {} {} {} {}", info.start_index, info.end_index, on_false_jump, on_true_jump, negate);
+
+                let (comp, abs_jmp_pos) = if negate || must_be_true {
+                    (info.comparison.negate(), on_false_jump)
                 } else {
-                    info.comparison.clone()
+                    (info.comparison.clone(), on_true_jump)
                 };
 
                 // This is just for testing and should be removed once the code is working
-                // instructions.push(Instruction::IfICmp(on_true_jump, comp))
+                // instructions.push(Instruction::IfICmp(abs_jmp_pos, comp))
 
                 // This is the actual code that should be used
-                instructions.push(Instruction::IfICmp(on_true_jump - info.end_index, comp))
+                instructions.push(Instruction::IfICmp(abs_jmp_pos - info.end_index, comp))
             }
             BlockType::Parenthesis(_) => {
                 return Err("fully_flatten input should not include parenthesis".to_string())
@@ -1188,11 +1191,13 @@ fn parse_if(
         tree_instruction_count,
         tree_instruction_count + code_block_length,
         false,
+        true,
     )?;
 
     instructions.pretty_print();
 
-    Err(String::from("Finished parsing if"))
+    // Err(String::from("Finished parsing if"))
+    Ok(instructions)
 }
 
 fn parse_code_block(
