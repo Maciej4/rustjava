@@ -337,8 +337,6 @@ fn parse_expression(
     let mut instructions = vec![];
     let mut expression_type = PrimitiveType::Null;
 
-    println!("parse_expression: {}", node.kind());
-
     match node.kind() {
         "(" | "," | ")" => {}
         "decimal_integer_literal" => {
@@ -729,8 +727,6 @@ fn parse_expression(
                 None => return Err(String::from("Field access is missing class or object name")),
             };
 
-            println!("class_or_object_name: {}", class_or_object_name);
-
             let field_name = match node.child(2) {
                 Some(node) => match node.utf8_text(source) {
                     Ok(text) => text.to_string(),
@@ -947,9 +943,19 @@ impl BlockType {
                 let n = info.comparisons.len();
                 for (i, comparison) in info.comparisons.iter().enumerate() {
                     instructions.extend(if i == (n - 1) {
-                        comparison.fully_flatten(on_true_jump, on_false_jump, false, must_be_true)?
+                        comparison.fully_flatten(
+                            on_true_jump,
+                            on_false_jump,
+                            false,
+                            must_be_true,
+                        )?
                     } else {
-                        comparison.fully_flatten(comparison.end_index() + 1, on_false_jump, true, must_be_true)?
+                        comparison.fully_flatten(
+                            comparison.end_index() + 1,
+                            on_false_jump,
+                            true,
+                            must_be_true,
+                        )?
                     });
                 }
             }
@@ -962,14 +968,17 @@ impl BlockType {
                     instructions.extend(if i == (n - 1) {
                         comparison.fully_flatten(on_true_jump, on_false_jump, true, must_be_true)?
                     } else {
-                        comparison.fully_flatten(on_true_jump, comparison.end_index() + 1, false, false)?
+                        comparison.fully_flatten(
+                            on_true_jump,
+                            comparison.end_index() + 1,
+                            false,
+                            false,
+                        )?
                     });
                 }
             }
             BlockType::Expression(info) => {
                 instructions.extend(info.instructions.clone());
-
-                println!("{} {} {} {} {}", info.start_index, info.end_index, on_false_jump, on_true_jump, negate);
 
                 let (comp, abs_jmp_pos) = if negate || must_be_true {
                     (info.comparison.negate(), on_false_jump)
@@ -977,10 +986,6 @@ impl BlockType {
                     (info.comparison.clone(), on_true_jump)
                 };
 
-                // This is just for testing and should be removed once the code is working
-                // instructions.push(Instruction::IfICmp(abs_jmp_pos, comp))
-
-                // This is the actual code that should be used
                 instructions.push(Instruction::IfICmp(abs_jmp_pos - info.end_index, comp))
             }
             BlockType::Parenthesis(_) => {
@@ -1002,8 +1007,6 @@ fn partial_parse_if(
     instructions_count: &mut usize,
 ) -> Result<BlockType, String> {
     let mut instructions = Vec::new();
-
-    println!("partial_parse_if: {}", node.kind());
 
     if node.kind() == "parenthesized_expression" {
         let start_index = *instructions_count;
@@ -1168,8 +1171,6 @@ fn parse_if(
         None => return Err(String::from("If statement doesn't have a condition")),
     };
 
-    child.print_tree();
-
     let mut tree_instruction_count = 0;
 
     let expression_tree = partial_parse_if(
@@ -1183,10 +1184,6 @@ fn parse_if(
     )?
     .flatten();
 
-    expression_tree.pretty_print_tree(0);
-
-    println!("tree_instruction_count: {}", tree_instruction_count);
-
     let instructions = expression_tree.fully_flatten(
         tree_instruction_count,
         tree_instruction_count + code_block_length,
@@ -1194,9 +1191,6 @@ fn parse_if(
         true,
     )?;
 
-    instructions.pretty_print();
-
-    // Err(String::from("Finished parsing if"))
     Ok(instructions)
 }
 
@@ -1212,8 +1206,6 @@ fn parse_code_block(
     let mut locals = (*super_locals).clone();
 
     for child in node.get_children() {
-        println!("parse_code_block: {}", child.kind());
-
         match child.kind() {
             "local_variable_declaration" => {
                 let variable_declarator = child.child_by_kind("variable_declarator")?;
@@ -1370,7 +1362,6 @@ fn parse_class(
             None => return Err(format!("Failed to find method info for method {}", i)),
         };
         let method_signature = method_info.signature.clone();
-        println!("parsing method {}", method_signature);
 
         let parsed_method = parse_method(
             method,
@@ -1424,7 +1415,6 @@ pub fn parse_to_class(code: String) -> Result<Vec<Class>, String> {
     };
 
     let parsed_class = parse_class(&class, source, &parser_context)?;
-    // println!("Parsed class: {:?}", parsed_class);
 
     Ok(vec![parsed_class])
 }
