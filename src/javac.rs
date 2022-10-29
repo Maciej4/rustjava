@@ -1,3 +1,4 @@
+use std::any::Any;
 use crate::java_class::{ConstantPoolEntry, ConstantPoolExt};
 use crate::jvm::{Class, Method};
 use crate::{Comparison, Instruction, Primitive, PrimitiveType};
@@ -353,14 +354,25 @@ fn parse_expression(
             instructions.push(Instruction::Const(Primitive::Int(value)));
         }
         "decimal_floating_point_literal" => {
-            let value = match node.utf8_text(source) {
-                Ok(text) => match text.parse::<f32>() {
-                    Ok(value) => value,
-                    Err(err) => return Err(format!("Failed to parse float literal: {}", err)),
-                },
+            let text = match node.utf8_text(source) {
+                Ok(text) => text,
                 Err(err) => {
-                    return Err(format!("Failed to parse decimal floating point literal: {}", err))
+                    return Err(format!(
+                        "Failed to parse decimal floating point literal: {}",
+                        err
+                    ))
                 }
+            };
+
+            let text = if text.ends_with('f') || text.ends_with('F') {
+                &text[..text.len() - 1]
+            } else {
+                text
+            };
+
+            let value = match text.parse::<f32>() {
+                Ok(value) => value,
+                Err(err) => return Err(format!("Failed to parse floating point literal: {}", err)),
             };
 
             expression_type = PrimitiveType::Float;
@@ -384,12 +396,30 @@ fn parse_expression(
         "array_initializer" => {
             instructions.push(Instruction::NewArray(PrimitiveType::Int)); // TODO: Support other types
 
-            let i = 0;
+            let mut i = 0;
             for child in node.get_children() {
-                let (child_instructions, child_type) = parse_expression(&child, source, current_class, parser_context, super_locals, constant_pool)?;
+                if child.kind() == "," || child.kind() == "{" || child.kind() == "}" {
+                    continue;
+                }
+
+                instructions.push(Instruction::Dup);
+                instructions.push(Instruction::Const(Primitive::Int(i)));
+
+                let (child_instructions, child_type) = parse_expression(
+                    &child,
+                    source,
+                    current_class,
+                    parser_context,
+                    super_locals,
+                    constant_pool,
+                )?;
+
                 instructions.extend(child_instructions);
                 instructions.push(Instruction::AStore(child_type));
+                i += 1;
             }
+
+            expression_type = PrimitiveType::Reference;
         }
         "assignment_expression" | "variable_declarator" => {
             let variable_index =

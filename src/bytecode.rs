@@ -389,4 +389,18 @@ impl PrimitiveType {
                 | (PrimitiveType::Boolean, PrimitiveType::Boolean)
         )
     }
+
+    pub fn from_type_id(id: usize) -> Result<PrimitiveType, String> {
+        Ok(match id {
+            4 => PrimitiveType::Boolean,
+            5 => PrimitiveType::Char,
+            6 => PrimitiveType::Float,
+            7 => PrimitiveType::Double,
+            8 => PrimitiveType::Byte,
+            9 => PrimitiveType::Short,
+            10 => PrimitiveType::Int,
+            11 => PrimitiveType::Long,
+            _ => return Err(format!("Invalid type id: {}", id)),
+        })
+    }
 }
