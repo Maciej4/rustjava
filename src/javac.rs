@@ -1,4 +1,3 @@
-use crate::bytecode::InstructionVec;
 use crate::java_class::{ConstantPoolEntry, ConstantPoolExt};
 use crate::jvm::{Class, Method};
 use crate::{Comparison, Instruction, Primitive, PrimitiveType};
@@ -353,6 +352,20 @@ fn parse_expression(
             expression_type = PrimitiveType::Int;
             instructions.push(Instruction::Const(Primitive::Int(value)));
         }
+        "decimal_floating_point_literal" => {
+            let value = match node.utf8_text(source) {
+                Ok(text) => match text.parse::<f32>() {
+                    Ok(value) => value,
+                    Err(err) => return Err(format!("Failed to parse float literal: {}", err)),
+                },
+                Err(err) => {
+                    return Err(format!("Failed to parse decimal floating point literal: {}", err))
+                }
+            };
+
+            expression_type = PrimitiveType::Float;
+            instructions.push(Instruction::Const(Primitive::Float(value)));
+        }
         "identifier" => {
             let name = match node.utf8_text(source) {
                 Ok(text) => text.to_string(),
@@ -366,6 +379,16 @@ fn parse_expression(
                     expression_type = local_type;
                 }
                 None => return Err(format!("Local variable {} not found", name)),
+            }
+        }
+        "array_initializer" => {
+            instructions.push(Instruction::NewArray(PrimitiveType::Int)); // TODO: Support other types
+
+            let i = 0;
+            for child in node.get_children() {
+                let (child_instructions, child_type) = parse_expression(&child, source, current_class, parser_context, super_locals, constant_pool)?;
+                instructions.extend(child_instructions);
+                instructions.push(Instruction::AStore(child_type));
             }
         }
         "assignment_expression" | "variable_declarator" => {

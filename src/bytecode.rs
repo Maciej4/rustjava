@@ -54,8 +54,8 @@ pub enum Instruction {
     InvokeInterface(usize), // TODO: 4: indexbyte1, indexbyte2, count, 0
     InvokeDynamic(usize),   // TODO: 4: indexbyte1, indexbyte2, 0, 0
     New(usize),
-    NewArray(usize),
-    ANewArray(usize),
+    NewArray(PrimitiveType),
+    ANewArray(PrimitiveType), // TODO: Perhaps this should be removed?
     ArrayLength,
     AThrow,
     CheckCast(usize),
