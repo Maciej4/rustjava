@@ -71,10 +71,22 @@ fn class_class_file_test() {
     test_class_set(vec!["ClassTest.class", "Point.class"], "90");
 }
 
+/// Test Utils
+
+#[cfg(target_os = "windows")]
+fn file_path(file_name: &str) -> String {
+    return format!(".\\src\\java_tests\\{}", file_name);
+}
+
+#[cfg(not(target_os = "windows"))]
+fn file_path(file_name: &str) -> String {
+    return format!("./src/java_tests/{}", file_name);
+}
+
 fn test_class(class_name: &str, expected: &str) {
     println!("Running {} | Expected {} and got: ", class_name, expected);
 
-    let class_name_and_path = format!(".\\src\\java_tests\\{}", class_name);
+    let class_name_and_path = file_path(class_name);
 
     let classes = vec![class_file_parser::parse_file_to_class(class_name_and_path)];
 
@@ -98,7 +110,7 @@ fn test_class_set(class_names: Vec<&str>, expected: &str) {
     );
 
     for class_name in class_names {
-        let class_name_and_path = format!(".\\src\\java_tests\\{}", class_name);
+        let class_name_and_path = file_path(class_name);
         classes.push(class_file_parser::parse_file_to_class(class_name_and_path));
     }
 
@@ -116,7 +128,7 @@ fn test_class_set(class_names: Vec<&str>, expected: &str) {
 fn compile_and_run_test(class_name: &str, expected: &str) {
     print!("Running {} | Expected {} and got: ", class_name, expected);
 
-    let class_name_and_path = format!(".\\src\\java_tests\\{}", class_name);
+    let class_name_and_path = file_path(class_name);
 
     let class_code = std::fs::read_to_string(class_name_and_path).unwrap();
 
